@@ -3,10 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <title>ReadO</title>
-<link rel="stylesheet" as="style" crossorigin
-  href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
-<link rel="stylesheet" type="text/css"
-  href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css" />
+<!-- Pretendard + D2Coding, bundled locally (see vendor/fonts.css) -->
+<link rel="stylesheet" type="text/css" href="/vendor/fonts.css" />
 <style>
   /* === One Light (default) === */
   :root, body.theme-light {
@@ -573,10 +571,10 @@
 
 <div class="toast" id="toast">x</div>
 
-<!-- Monaco Editor -->
-<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
-<!-- Markdown renderer -->
-<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<!-- Monaco Editor (bundled: vendor/monaco/vs) -->
+<script src="/vendor/monaco/vs/loader.js"></script>
+<!-- Markdown renderer (bundled) -->
+<script src="/vendor/marked.min.js"></script>
 <script>
 let _settings = {};
 let _activeMatch = null;
@@ -816,7 +814,7 @@ async function openFileInPane(paneIdx, path, gotoLine, term) {
   }
 }
 
-require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' } });
+require.config({ paths: { vs: '/vendor/monaco/vs' } });
 require(['vs/editor/editor.main'], () => {
   // Atom One Light theme
   monaco.editor.defineTheme('one-light', {

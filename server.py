@@ -20,6 +20,22 @@ import time
 ROOT = os.path.dirname(os.path.abspath(__file__))
 HTML_PATH = os.path.join(ROOT, "source.html")
 CONFIG_PATH = os.path.join(ROOT, "config.json")
+# Bundled 3rd-party assets (Monaco, marked, fonts). Served at /vendor/ so the app
+# needs no network access. reado.py repoints this at the PyInstaller bundle dir.
+VENDOR_PATH = os.path.join(ROOT, "vendor")
+
+# Only what /vendor/ actually contains; anything else is refused.
+VENDOR_MIME = {
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".woff2": "font/woff2",
+    ".woff": "font/woff",
+    ".ttf": "font/ttf",
+    ".svg": "image/svg+xml",
+    ".map": "application/json; charset=utf-8",
+}
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 
@@ -84,6 +100,26 @@ def save_settings(s: dict):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cur, f, indent=2)
     return cur
+
+
+def ensure_config() -> bool:
+    """Materialise config.json with the defaults if it is not there yet.
+
+    load_settings() only falls back in memory, so before this the file appeared
+    solely after the user pressed Save - leaving nothing to hand-edit. Returns
+    True when a file was created. Must be called *after* CONFIG_PATH is final
+    (reado.py repoints it at the exe directory), never at import time.
+    """
+    if os.path.exists(CONFIG_PATH):
+        return False
+    try:
+        os.makedirs(os.path.dirname(CONFIG_PATH) or ".", exist_ok=True)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(_apply_defaults(dict(DEFAULT_SETTINGS)), f, indent=2)
+        return True
+    except OSError:
+        # read-only location: keep running on in-memory defaults
+        return False
 
 
 SETTINGS = load_settings()
@@ -673,8 +709,38 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
             self._send(200, {"projects": projects})
+        elif u.path.startswith("/vendor/"):
+            self._send_vendor(unquote(u.path[len("/vendor/"):]))
         else:
             self._send(404, {"error": "not found"})
+
+    def _send_vendor(self, rel):
+        """Serve a bundled asset from VENDOR_PATH. Read-only, no directory listing."""
+        if not rel or rel.endswith("/"):
+            return self._send(404, {"error": "not found"})
+        full = os.path.abspath(os.path.join(VENDOR_PATH, rel.replace("/", os.sep)))
+        root = os.path.abspath(VENDOR_PATH)
+        # reject traversal outside the vendor dir
+        try:
+            if os.path.commonpath([full.lower(), root.lower()]) != root.lower():
+                return self._send(403, {"error": "forbidden"})
+        except ValueError:  # different drive
+            return self._send(403, {"error": "forbidden"})
+        ctype = VENDOR_MIME.get(os.path.splitext(full)[1].lower())
+        if not ctype:
+            return self._send(403, {"error": "forbidden"})
+        try:
+            with open(full, "rb") as f:
+                body = f.read()
+        except (FileNotFoundError, IsADirectoryError, PermissionError, OSError):
+            return self._send(404, {"error": "not found"})
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        # bundled assets are immutable for a given build
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_POST(self):
         u = urlparse(self.path)
@@ -701,4 +767,6 @@ def serve(host="127.0.0.1", port=8766):
 
 
 if __name__ == "__main__":
+    ensure_config()
+    SETTINGS = load_settings()
     serve()

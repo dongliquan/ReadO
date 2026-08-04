@@ -15,6 +15,12 @@ dist/
 # User config (machine-specific paths)
 config.json
 
+# Downloaded 3rd-party assets (~15 MB). Recreate with: python fetch-vendor.py
+# vendor/fonts.css is source and IS tracked.
+vendor/monaco/
+vendor/marked.min.js
+vendor/fonts/
+
 # IDE
 .idea/
 .vscode/

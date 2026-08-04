@@ -28,8 +28,12 @@ import server  # noqa: E402
 
 server.ROOT = app_root()
 server.HTML_PATH = os.path.join(app_root(), "source.html")
+server.VENDOR_PATH = os.path.join(app_root(), "vendor")
 server.CONFIG_PATH = os.path.join(writable_root(), "config.json")
+# evaluate first-run *before* ensure_config() writes the file, so the UI still
+# gets first_run=True on the very first launch
 server._first_run = not os.path.exists(server.CONFIG_PATH)
+server.ensure_config()
 server.SETTINGS = server.load_settings()
 
 HOST = "127.0.0.1"

@@ -1,0 +1,28 @@
+/*
+ * ReadO local font bundle — replaces the jsdelivr CDN links so the app works offline.
+ * Sources: Pretendard v1.3.9 (orioncactus), D2Coding subset (wan2land).
+ * woff2 only: the pywebview host is WebView2 / modern WebKit, both support woff2.
+ */
+@font-face {
+  font-family: 'Pretendard Variable';
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+  src: url('fonts/PretendardVariable.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'D2Coding';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('fonts/d2coding-subset.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'D2Coding';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('fonts/d2coding-bold-subset.woff2') format('woff2');
+}

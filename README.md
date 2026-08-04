@@ -18,21 +18,41 @@ No installation of a heavy IDE required — just point it at your source directo
 - **Light / Dark theme** (Atom One palette) — toggle with 🌙 button
 - **D2Coding font** for clean Korean + monospace rendering
 - **Pywebview** native desktop window (no browser tab clutter)
+- **Fully offline** — Monaco, marked and the webfonts are bundled, not pulled from a CDN
 
 ## Quick Start
 
 ### 1) Dev mode (requires Python 3.10+)
 ```bash
 pip install -r requirements.txt
+python fetch-vendor.py     # once: downloads Monaco / marked / fonts into vendor\
 python reado.py
 ```
 
 ### 2) Standalone .exe (Windows)
 ```bash
 pip install -r requirements.txt
-build.bat
-# → dist\reado.exe  (~30 MB, no Python required at runtime)
+build.bat                  # runs fetch-vendor.py automatically if vendor\ is missing
+# → dist\reado.exe  (~22 MB, no Python and no network required at runtime)
 ```
+
+## Offline assets (`vendor/`)
+
+The UI needs Monaco Editor, marked and two webfonts. These used to be loaded
+from jsdelivr, which meant the "standalone" exe silently failed with no
+internet or behind a CDN-blocking corporate network. They are now served by the
+built-in HTTP server at `/vendor/`.
+
+Those ~15 MB of downloads are **not committed**. Recreate them with:
+
+```bash
+python fetch-vendor.py            # skips if already present
+python fetch-vendor.py --force    # refetch (e.g. after a version bump)
+```
+
+Pinned versions live at the top of `fetch-vendor.py` (`MONACO_VERSION`,
+`MARKED_VERSION`, `PRETENDARD_TAG`). `vendor/fonts.css` is hand-written source
+and **is** tracked — it declares the `@font-face` rules against the local files.
 
 ## Configuration
 
@@ -58,9 +78,11 @@ On first run a `config.json` is created next to the .exe / script. Edit via the 
 
 ## Architecture
 
-- `server.py` — HTTP server (port 8766): file tree, content, search, settings APIs
+- `server.py` — HTTP server (port 8766): file tree, content, search, settings APIs, `/vendor/` static assets
 - `source.html` — single-page UI with Monaco editor + Pretendard + D2Coding fonts
 - `reado.py` — Pywebview launcher that starts the server in a thread and opens a native window
+- `fetch-vendor.py` — downloads the bundled 3rd-party assets into `vendor/` (stdlib only)
+- `vendor/` — Monaco, marked, webfonts (downloaded) + `fonts.css` (source)
 - `build.bat` — PyInstaller one-file build script
 
 ## License

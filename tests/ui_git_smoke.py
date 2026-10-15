@@ -29,6 +29,29 @@ def check(cond, what):
         FAILS.append(what)
 
 
+def strip_git_click(pg, where):
+    """The Git icon at the bottom of the left tool strip: a real click opens and
+    closes the tool window, like Git → Git Tool Window (same command, same state)."""
+    btn = "#toolStrip .tsb[data-tool=git]"
+    pg.wait_for_function("_gitAvail !== null", timeout=10000)  # /api/git/info answered (refreshGitAvail)
+    check(pg.evaluate(f"(() => {{ const b = document.querySelector('{btn}'); return !b.disabled && !b.classList.contains('dim'); }})()"),
+          f"{where}: strip Git icon enabled")
+    if pg.evaluate("!!(STATE.git && STATE.git.open)"):
+        pg.evaluate("GitUI.toggleWindow(false)")
+    pg.click(btn)
+    pg.wait_for_selector("#gitWin.show", timeout=5000)
+    check(pg.evaluate(f"STATE.git.open && document.querySelector('{btn}').classList.contains('active') && CMD.get('git.toolwin').checked()"),
+          f"{where}: strip Git click opens the tool window (icon active, menu item checked)")
+    pg.click(btn)
+    pg.wait_for_function("!document.querySelector('#gitWin').classList.contains('show')", timeout=5000)
+    check(pg.evaluate(f"!STATE.git.open && !document.querySelector('{btn}').classList.contains('active') && !CMD.get('git.toolwin').checked()"),
+          f"{where}: strip Git click again closes it")
+    pg.evaluate("runCommand('git.toolwin')")
+    check(pg.evaluate(f"STATE.git.open && document.querySelector('{btn}').classList.contains('active')"), f"{where}: menu command → strip icon active")
+    pg.evaluate("runCommand('git.toolwin')")
+    check(pg.evaluate(f"!STATE.git.open && !document.querySelector('{btn}').classList.contains('active')"), f"{where}: menu command again → icon inactive")
+
+
 def main():
     fx = os.path.realpath(sys.argv[1])
     shots = sys.argv[2] if len(sys.argv) > 2 else None
@@ -56,6 +79,9 @@ def main():
             gitc = [c for c in conf if any(i.startswith("git.") for i in c["ids"])]
             check(not gitc, f"{km} keymap: no conflicts with git keys {gitc or ''}")
         check(pg.evaluate("!!document.querySelector('#tbGroups [data-group=git] [data-cmd=\"git.toolwin\"]')"), "toolbar Git button")
+        print("== tool strip Git icon")
+        check(not pg.evaluate("fetch('/api/git/info').then(r => r.json()).then(d => !!d.repo)"), "fixture root is not a repository (repositories below it)")
+        strip_git_click(pg, "non-repo parent folder")
 
         print("== Local Changes")
         pg.evaluate("GitUI.toggleWindow(true)")
@@ -715,6 +741,16 @@ def main():
         finally:
             gitview.DIFFWIN.close_all()
             gitview.DIFFWIN.backend = None
+        print("== tool strip Git icon: a repository folder open")
+        server.SETTINGS["base_dir"] = os.path.join(fx, "basic")
+        rp = b.new_page(viewport={"width": 1200, "height": 800})
+        rp.on("pageerror", lambda e: errors.append("repo page: " + str(e)))
+        rp.goto(url)
+        rp.wait_for_function("typeof monaco !== 'undefined' && window.GitUI && document.querySelector('#tree .node')", timeout=30000)
+        check(rp.evaluate("fetch('/api/git/info').then(r => r.json()).then(d => !!d.repo)"), "basic/ is a repository")
+        strip_git_click(rp, "repository folder")
+        rp.close()
+        server.SETTINGS["base_dir"] = fx
         b.close()
     srv.shutdown()
     errs = [e for e in errors if "favicon" not in e]

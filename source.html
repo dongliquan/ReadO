@@ -635,7 +635,7 @@
   .toolstrip .tsb:hover:not(:disabled) { background: var(--bg); color: var(--text); }
   .toolstrip .tsb.active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
     border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
-  .toolstrip .tsb:disabled { opacity: .35; cursor: default; }
+  .toolstrip .tsb.dim:not(.active) { opacity: .45; }
   body.side-collapsed #sidebar, body.side-collapsed #splitter { display: none; }
   .outline-filter { width: calc(100% - 8px); margin: 2px 4px 6px; padding: 4px 8px; font-size: 12px; font-family: var(--mono);
     border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); }
@@ -4939,14 +4939,17 @@ function toggleSideTool(tab) {  // the same tool again folds the sidebar away
   setSideTab(tab);
   if (STATE.sideCollapsed) setSidebarOpen(true);
 }
-function toggleGitTool() {
+function toggleGitTool() {  // the same command as Git → Git Tool Window / Alt+9 / Ctrl+Shift+G
   if (CMD.get('git.toolwin')) runCommand('git.toolwin');
+  else if (window.GitUI) GitUI.toggleWindow();
 }
-let _gitAvail = null;  // null: unknown, false: no git / no repository here
+// Only a missing git dims the icon; it stays clickable like the menu (the window then says why).
+// A working folder that is not itself a repository (repositories below it) is normal.
+let _gitAvail = null;  // null: unknown, false: git not installed / too old
 async function refreshGitAvail() {
   try {
     const d = await (await fetch('/api/git/info', { cache: 'no-store' })).json();
-    _gitAvail = !!(d.available && d.repo);
+    _gitAvail = !!d.available;
   } catch (e) { _gitAvail = null; }
   refreshToolStrip();
 }
@@ -4960,9 +4963,9 @@ function _refreshToolStrip() {
     const c = CMD.get(b.dataset.cmd), tool = b.dataset.tool;
     const name = tool === 'git' ? 'Git' : tool === 'files' ? 'Files' : 'Outline';
     b.title = name + (c && c.keys ? ` (${c.keys})` : '') +
-      (tool === 'git' && _gitAvail === false ? ' — no git repository here (or git not installed)' : '');
+      (tool === 'git' && _gitAvail === false ? ' — git not found' : '');
     b.classList.toggle('active', tool === 'git' ? !!(STATE.git && STATE.git.open) : !STATE.sideCollapsed && _sideTab === tool);
-    if (tool === 'git') b.disabled = _gitAvail === false || !c;
+    if (tool === 'git') b.classList.toggle('dim', _gitAvail === false);
   });
   const hide = document.getElementById('sideHide');
   const fc = CMD.get('view.files');

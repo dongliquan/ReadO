@@ -1,0 +1,22 @@
+ReadO — third-party notices
+===========================
+
+ReadO is MIT licensed. Bundled programs and libraries keep their own licenses
+(see README.md "License"). The Git tool window (gitview.py, git.js) contains no
+copied third-party code; the following MIT-licensed projects were used as
+references for ideas and output formats:
+
+* Visual Studio Code — SCM history graph (src/vs/workbench/contrib/scm/browser/scmHistory.ts)
+  and the built-in git extension: the "first parent keeps its lane" layout of the
+  commit graph and per-row SVG drawing; feeding the diff editor with `git show REV:path`.
+  https://github.com/microsoft/vscode — MIT License, Copyright (c) Microsoft Corporation.
+
+* GitHub Desktop — app/src/lib/git: parsing of `git status --porcelain=v2 -z`,
+  `git log` with %x00/%x1f separators and `--numstat -z` output.
+  https://github.com/desktop/desktop — MIT License, Copyright (c) GitHub, Inc.
+
+Not used: vscode-git-graph (mhutchie) — its license forbids distributing derivative
+works, so neither its code nor its assets are in ReadO. GPL-licensed git tools
+(gitk, tig, git-cola, Git Extensions) were looked at for UI ideas only.
+
+The git program itself is not bundled; ReadO runs the git installed on the PC.

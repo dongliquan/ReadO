@@ -10,16 +10,23 @@ venv/
 # PyInstaller build artifacts
 build/
 dist/
+build-*/
+dist-*/
 *.spec
 
 # User config (machine-specific paths)
 config.json
+# UI state / opened outside files, running-instance handoff (written next to config.json)
+state.json
+instance.json
 
-# Downloaded 3rd-party assets (~15 MB). Recreate with: python fetch-vendor.py
+# Downloaded 3rd-party assets (~17 MB). Recreate with: python fetch-vendor.py
 # vendor/fonts.css is source and IS tracked.
 vendor/monaco/
 vendor/marked.min.js
 vendor/fonts/
+vendor/rg/
+vendor/ctags/
 
 # IDE
 .idea/

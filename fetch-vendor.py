@@ -2,10 +2,14 @@
 Fetch the 3rd-party assets ReadO bundles, into ./vendor.
 
 ReadO must run with no network access, so Monaco / marked / the webfonts are
-served from /vendor instead of a CDN. Those files are not committed (~15 MB),
-so run this once after cloning and before build.bat.
+served from /vendor instead of a CDN, ripgrep (vendor/rg/rg.exe) powers Find in
+Files / usages, and Universal Ctags (vendor/ctags/ctags.exe) powers the symbol
+index (go to definition, Ctrl+T, outline). Those files are not committed
+(~22 MB), so run this once after cloning and before build.bat.
 
     python fetch-vendor.py [--force]
+
+An existing vendor/ that predates ripgrep or ctags only gets those added.
 
 Stdlib only - no pip install needed.
 """
@@ -13,8 +17,10 @@ import io
 import os
 import shutil
 import sys
+import hashlib
 import tarfile
 import urllib.request
+import zipfile
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 VENDOR = os.path.join(ROOT, "vendor")
@@ -22,6 +28,22 @@ VENDOR = os.path.join(ROOT, "vendor")
 MONACO_VERSION = "0.45.0"
 MARKED_VERSION = "12.0.0"
 PRETENDARD_TAG = "v1.3.9"
+RIPGREP_VERSION = "14.1.1"
+# sha256 of the release zip, from the .sha256 file published with the release
+RIPGREP_SHA256 = "d0f534024c42afd6cb4d38907c25cd2b249b79bbe6cc1dbee8e3e37c2b6e25a1"
+RIPGREP_ZIP = (
+    "https://github.com/BurntSushi/ripgrep/releases/download/"
+    f"{RIPGREP_VERSION}/ripgrep-{RIPGREP_VERSION}-x86_64-pc-windows-msvc.zip"
+)
+
+# Universal Ctags Windows build (github.com/universal-ctags/ctags-win32).
+# sha256 = the digest GitHub publishes for the release asset.
+CTAGS_VERSION = "p6.2.20260920.0"
+CTAGS_SHA256 = "0dd2e964e82ec6bed9337c6d0a1d9d29146b3115dbc27682f8e7b62cafd073db"
+CTAGS_ZIP = (
+    "https://github.com/universal-ctags/ctags-win32/releases/download/"
+    f"{CTAGS_VERSION}/ctags-{CTAGS_VERSION}-x64.zip"
+)
 
 NPM = "https://registry.npmjs.org"
 JSD = "https://cdn.jsdelivr.net/gh"
@@ -79,16 +101,59 @@ def extract_from_tgz(blob, members_prefix, dest):
     return count
 
 
+def fetch_ripgrep():
+    """vendor/rg/rg.exe (+ license files). Verified against RIPGREP_SHA256."""
+    print(f"== ripgrep {RIPGREP_VERSION} ==")
+    blob = get(RIPGREP_ZIP)
+    digest = hashlib.sha256(blob).hexdigest()
+    if digest != RIPGREP_SHA256:
+        raise RuntimeError(f"ripgrep checksum mismatch: {digest}")
+    dest = os.path.join(VENDOR, "rg")
+    os.makedirs(dest, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+        for m in zf.namelist():
+            name = m.rsplit("/", 1)[-1]
+            if name in ("rg.exe", "COPYING", "LICENSE-MIT", "UNLICENSE"):
+                with zf.open(m) as src, open(os.path.join(dest, name), "wb") as f:
+                    shutil.copyfileobj(src, f)
+    print("  -> rg/rg.exe")
+
+
+def fetch_ctags():
+    """vendor/ctags/ctags.exe (+ license files). Verified against CTAGS_SHA256."""
+    print(f"== universal-ctags {CTAGS_VERSION} ==")
+    blob = get(CTAGS_ZIP)
+    digest = hashlib.sha256(blob).hexdigest()
+    if digest != CTAGS_SHA256:
+        raise RuntimeError(f"ctags checksum mismatch: {digest}")
+    dest = os.path.join(VENDOR, "ctags")
+    os.makedirs(dest, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+        for m in zf.namelist():
+            if m == "ctags.exe" or (m.startswith("license/") and not m.endswith("/")):
+                name = m.rsplit("/", 1)[-1]
+                with zf.open(m) as src, open(os.path.join(dest, name), "wb") as f:
+                    shutil.copyfileobj(src, f)
+    print("  -> ctags/ctags.exe")
+
+
 def main():
     force = "--force" in sys.argv
     loader = os.path.join(VENDOR, "monaco", "vs", "loader.js")
+    rg = os.path.join(VENDOR, "rg", "rg.exe")
+    ctags = os.path.join(VENDOR, "ctags", "ctags.exe")
     if os.path.exists(loader) and not force:
-        print("vendor/ already populated - nothing to do (use --force to refetch)")
+        if os.path.exists(rg) and os.path.exists(ctags):
+            print("vendor/ already populated - nothing to do (use --force to refetch)")
+        if not os.path.exists(rg):
+            fetch_ripgrep()
+        if not os.path.exists(ctags):
+            fetch_ctags()
         return 0
 
     if force and os.path.isdir(VENDOR):
         # keep fonts.css: it is source, not a download
-        for name in ("monaco", "fonts", "marked.min.js"):
+        for name in ("monaco", "fonts", "marked.min.js", "rg", "ctags"):
             p = os.path.join(VENDOR, name)
             shutil.rmtree(p, ignore_errors=True) if os.path.isdir(p) else (
                 os.path.exists(p) and os.remove(p))
@@ -112,6 +177,9 @@ def main():
         with open(os.path.join(VENDOR, "fonts", name), "wb") as f:
             f.write(data)
         print(f"  -> fonts/{name} ({len(data) // 1024} KB)")
+
+    fetch_ripgrep()
+    fetch_ctags()
 
     if not os.path.exists(os.path.join(VENDOR, "fonts.css")):
         print("[warn] vendor/fonts.css is missing - it is source and should be committed")

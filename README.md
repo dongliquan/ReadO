@@ -102,6 +102,8 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
       padding: 1px 8px; margin-right: 4px }
 </style>
 
+**Version 0.1.0** · changes: [CHANGELOG.md](CHANGELOG.md)
+
 A lightweight desktop **source viewer & editor**: the essentials of VS Code / IntelliJ for reading, navigating and
 quickly editing code — open any folder, jump to classes and functions, edit text files in place. No IDE install,
 no project setup, works offline.

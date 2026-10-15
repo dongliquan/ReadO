@@ -3349,7 +3349,7 @@ def write_api(path, max_body=MAX_JSON_BODY):
     return deco
 
 
-VERSION = "1.3.0"
+VERSION = "0.1.0"  # the app version (Help → About); bump with CHANGELOG.md
 
 
 def settings_status():

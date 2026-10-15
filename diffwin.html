@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>diff · ReadO</title>
+<link rel="icon" href="/favicon.ico" />
+<!-- A diff window (an OS window of its own, opened by reado.py): one file at a time from the list
+     the main window sent; ↑ / ↓ walk it. Everything here is read-only. -->
+<link rel="stylesheet" type="text/css" href="/vendor/fonts.css" />
+<link rel="stylesheet" type="text/css" href="/app/git.css" />
+<style>
+  :root {
+    --bg: #fafafa; --panel: #ffffff; --border: #e5e5e6; --border-strong: #c8c8c9;
+    --text: #383a42; --text-dim: #5b6168; --text-mute: #a0a1a7; --accent: #4078f2; --hover: #ececed;
+    --mono: "D2Coding", "D2Coding ligature", ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+    --sans: "Pretendard", "Segoe UI", system-ui, sans-serif;
+  }
+  body.theme-dark {
+    --bg: #21252b; --panel: #282c34; --border: #181a1f; --border-strong: #3e4451;
+    --text: #abb2bf; --text-dim: #9aa0a8; --text-mute: #5c6370; --accent: #61afef; --hover: #2c313a;
+  }
+  html, body { margin: 0; height: 100%; }
+  body { display: flex; flex-direction: column; background: var(--panel); color: var(--text); font: 13px var(--sans); overflow: hidden; }
+  .gdm-head { cursor: default; }
+  .gdm-head .sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 2px; }
+  .gdm-head button.on { border-color: var(--accent); color: var(--accent); }
+  .toast { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); padding: 6px 12px; border-radius: 6px;
+    background: var(--text); color: var(--panel); font-size: 12px; display: none; }
+</style>
+</head>
+<body>
+<div class="gdm-head">
+  <div class="gdm-t"><span class="gdm-path"></span><span class="gdm-hash"></span><span class="gdm-sub"></span></div>
+  <span class="gdm-pos"></span>
+  <button data-a="prev" title="previous file (Alt+↑)">↑ file</button><button data-a="next" title="next file (Alt+↓)">↓ file</button>
+  <span class="sep"></span>
+  <button data-a="prevChange" title="previous change (Shift+F7)">◀ change</button><button data-a="nextChange" title="next change (F7)">change ▶</button>
+  <span class="sep"></span>
+  <button data-a="mode" title="side by side / unified"></button>
+  <button data-a="ws" title="ignore leading / trailing whitespace"></button>
+  <button data-a="edit" title="open the file in the ReadO window">Open in Editor</button>
+</div>
+<div class="gdm-body"><div class="gdm-ed"></div><div class="gdm-msg">loading…</div></div>
+<div class="toast" id="toast"></div>
+<script src="/vendor/monaco/vs/loader.js"></script>
+<script src="/app/diffwin.js"></script>
+</body>
+</html>

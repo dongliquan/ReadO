@@ -896,6 +896,8 @@
         Open jumps into other files (definition, import, component, a peek-list pick) in the next pane — Ctrl+Alt+click / Ctrl+Alt+F12: this pane</label>
       <label class="chk"><input type="checkbox" id="setLineBlame" />
         Git: show the current line's commit (author, date, message) faintly at the end of the line — the full per-line view is "Annotate with Git Blame" (editor right-click)</label>
+      <label class="chk"><input type="checkbox" id="setLangDiagnostics" />
+        Show language diagnostics (TypeScript / JavaScript errors) — off by default: without the project's build setup imports and globals show up as false errors</label>
     </div>
 
     <div class="field">
@@ -2547,11 +2549,25 @@ require(['vs/editor/editor.main'], () => {
     },
   });
 
+  applyLangDiagnostics();
   // Create the first pane (single-view default)
   createPane();
   registerNavProviders();
   _monacoReady();
 });
+
+// Monaco's TypeScript / JavaScript checker sees one file without its project (no
+// tsconfig, node_modules or "@/" aliases), so "Cannot find module" / "Cannot find
+// name" squiggles are noise here: off unless Settings → "Show language diagnostics".
+function applyLangDiagnostics() {
+  const ts = monaco.languages.typescript;
+  if (!ts) return;
+  const off = !STATE.langDiagnostics;
+  const opts = { noSemanticValidation: off, noSyntaxValidation: off, noSuggestionDiagnostics: off };
+  ts.typescriptDefaults.setDiagnosticsOptions(opts);
+  ts.javascriptDefaults.setDiagnosticsOptions(opts);
+  if (off) monaco.editor.getModels().forEach(m => ['typescript', 'javascript'].forEach(o => monaco.editor.setModelMarkers(m, o, [])));
+}
 
 function getTheme() {
   return STATE.theme === 'dark' ? 'dark' : 'light';
@@ -3044,6 +3060,7 @@ async function openSettings() {
   document.getElementById('setComponentClick').checked = STATE.componentClick !== false;
   document.getElementById('setComponentBeside').checked = STATE.componentBeside !== false;
   document.getElementById('setLineBlame').checked = !!(STATE.git && STATE.git.lineBlame);
+  document.getElementById('setLangDiagnostics').checked = !!STATE.langDiagnostics;
   document.getElementById('setKeymap').value = STATE.keymap || 'vscode';
   document.getElementById('setGitignore').checked = !!_settings.respect_gitignore;
   document.getElementById('setMaxMb').value = Math.round((_settings.max_file_bytes || 2000000) / 1000000);
@@ -3074,6 +3091,8 @@ async function saveSettings() {
   STATE.componentClick = document.getElementById('setComponentClick').checked;
   STATE.componentBeside = document.getElementById('setComponentBeside').checked;
   if (window.GitUI) GitUI.toggleLineBlame(document.getElementById('setLineBlame').checked);
+  const diag = document.getElementById('setLangDiagnostics').checked;
+  if (diag !== !!STATE.langDiagnostics) { STATE.langDiagnostics = diag; applyLangDiagnostics(); }
   saveState();
   try {
     const r = await fetch('/api/settings', {

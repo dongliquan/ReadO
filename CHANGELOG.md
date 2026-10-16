@@ -109,7 +109,44 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
 
 ## 목차
 
+- [**Unreleased**](#unreleased)
 - [**0.1.0 — first release**](#v010)
+
+---
+
+<a id="unreleased"></a>
+
+## Unreleased
+
+Changes since 0.1.0, not yet given a version number.
+
+### Search
+
+- **Find File and Find in Files are one dialog frame**: same place, size, input and rows, with tabs (Files · In Files ·
+  Commands · Symbols). `Tab`, `Ctrl+P` / `Ctrl+Shift+F` or a tab click switch between them and keep the typed text;
+  `%` in Find File moves the rest to Find in Files.
+- Find in Files: results grouped by file like Find File rows (badge, name, dim folder, count), option bar (match case,
+  words, regex, file mask, scope, context, Replace) kept between runs, `Alt+C` / `Alt+W` / `Alt+X`, recent searches when
+  the box is empty, **show more** past the result cap (up to 20,000), `Ctrl+Enter` / `Ctrl+click` opens beside.
+- The title-bar search box names Find File and Find in Files and shortens its label on narrow windows.
+
+### Toolbar and Git
+
+- Git toolbar group follows the active file's repository: branch, ahead / behind and **Pull** (`git fetch` +
+  fast-forward merge, with a confirmation; the one git write ReadO runs). Commit / Push hand the request to AgentO.
+- The breadcrumb shows the repository folder as a chip; the settings gear moved to the bottom of the tool strip.
+- Fixed: the Git icon on the tool strip did nothing when the open folder holds repositories but is not one itself;
+  it now opens the Git tool window like the Git menu.
+
+### Editor
+
+- No more false red squiggles in TypeScript / JavaScript: Monaco's checker sees one file without the project
+  (tsconfig, `node_modules`, `@/` paths), so its diagnostics are off. Settings → **Show language diagnostics** turns
+  them back on.
+
+### Tests
+
+- The headless editor suite is in the repository: `python tests/verify_editor.py`.
 
 ---
 

@@ -335,7 +335,9 @@ checks and a per-process token on every write request.
 - `source.html` — single-page UI (Monaco + Pretendard / D2Coding fonts)
 - `gitview.py` — read-only git views behind `/api/git/*` (guarded git runner, status, log sessions, blame …);
   `git.js` / `git.css` — the Git tool window, served next to `source.html`
-- `tests/` — `test_git.py` (headless API tests on fixture repositories, `git_fixture.py`), `ui_git_smoke.py` (browser)
+- `tests/` — `test_git.py` (headless API tests on fixture repositories, `git_fixture.py`), `ui_git_smoke.py` (browser);
+  `verify_editor.py` — the headless editor suite: `python tests/verify_editor.py` (needs `pip install playwright` +
+  `playwright install chromium`; fixtures in `%TEMP%\reado-headless`, or set `READO_TEST_WORK`)
 - `reado.py` — pywebview launcher: starts the server, opens the native window, open dialog, drag and drop,
   command-line files, single instance, quit prompt for unsaved changes, "Open with" registration
 - `fetch-vendor.py` — downloads the bundled 3rd-party assets into `vendor/` (stdlib only, versions pinned)

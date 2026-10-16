@@ -78,7 +78,7 @@
     background: transparent; border: none; cursor: default; font-family: inherit; }
   .menubar-item:hover, .menubar-item.open { background: var(--hover); }
   .tb-search-wrap { flex: 1; min-width: 0; display: flex; justify-content: center; }
-  .tb-search { width: min(560px, 70%); height: 24px; display: flex; align-items: center; justify-content: center; gap: 6px;
+  .tb-search { width: min(660px, 72%); height: 24px; display: flex; align-items: center; justify-content: center; gap: 6px;
     background: var(--bg); border: 1px solid var(--border); border-radius: 5px; color: var(--text-mute); font-size: 12px;
     font-family: inherit; cursor: pointer; min-width: 0; }
   .tb-search:hover { border-color: var(--accent); color: var(--text); }
@@ -439,6 +439,53 @@
   .fif-preview .pv-line.hit .ln { color: var(--accent); font-weight: 600; }
   .res-line.sel { background: var(--hover); }
   body.theme-dark .res-line.sel { background: #3a4150; }
+  /* Find File / Find in Files: one frame — same place, width, input, tabs, row height, selection, footer */
+  .qo-bg.fd-bg { padding-top: 64px; }
+  .fd { width: 1000px; max-width: 94vw; }
+  .fd.qo { max-height: 74vh; }
+  .fd.fif { height: 74vh; }
+  .fd-tabs { display: flex; align-items: center; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--border); background: var(--side);
+    border-radius: 10px 10px 0 0; font-size: 12px; user-select: none; }
+  .fd-tab { padding: 5px 12px 6px; cursor: pointer; color: var(--text-dim); border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0;
+    margin-bottom: -1px; white-space: nowrap; }
+  .fd-tab:hover { color: var(--text); }
+  .fd-tab.active { background: var(--panel); color: var(--text); font-weight: 600; border-color: var(--border); }
+  .fd-tab kbd { font: 10px var(--mono); color: var(--text-mute); margin-left: 4px; }
+  .fd-sum { margin-left: auto; font: 11px var(--mono); color: var(--text-mute); padding-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fd input.fd-input, .fif-head input[type=text]#fifQ { width: 100%; box-sizing: border-box; height: 44px; padding: 0 16px; font-size: 14px; font-family: var(--mono);
+    border: none; border-bottom: 1px solid var(--border); outline: none; background: transparent; color: var(--text); border-radius: 0; }
+  .fd-list { font-family: var(--mono); font-size: 12px; }
+  .fd-list .qo-item, .fd-list .res-line, .fd-list .res-file { height: 26px; box-sizing: border-box; display: flex; align-items: center; gap: 8px;
+    padding: 0 16px; white-space: nowrap; overflow: hidden; }
+  .fd-list .qo-item.sel, .fd-list .res-line.sel { background: var(--accent); color: #fff; }
+  .fd-list .res-line.sel .ln, .fd-list .res-line.sel .tx { color: #fff; }
+  .fd-list .res-line.sel mark { background: rgba(255,255,255,.3); color: #fff; }
+  .fd-list .res-line { padding-left: 34px; }
+  .fd-list .res-line .tx { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; word-break: normal; }
+  .fd-list .res-file { color: var(--text); font-weight: 600; cursor: pointer; }
+  .fd-list .res-file:hover { text-decoration: none; background: var(--hover); }
+  .fd-list .fbadge { flex: none; }
+  .fd-list .qo-dir, .fd-list .res-file .qo-dir { color: var(--text-mute); font-weight: 400; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .fd-list .res-file .cnt { margin-left: auto; color: var(--text-mute); font-weight: 400; font-size: 11px; }
+  .fd-list .qo-item .qo-name { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
+  .fd-list .qo-item .qo-meta { margin-left: auto; flex: none; }
+  .fd-list .qo-item.sel .qo-dir { color: rgba(255,255,255,.75); }
+  .fd-list .fd-more-row { justify-content: center; color: var(--accent); cursor: pointer; }
+  .fd-list .fd-recent-h { height: 24px; display: flex; align-items: center; padding: 0 16px; font: 600 11px inherit; color: var(--text-mute); text-transform: uppercase; letter-spacing: .06em; }
+  .fd-foot { flex: none; padding: 5px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-mute); background: var(--side);
+    border-radius: 0 0 10px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fd .fif-opts { padding: 6px 12px; gap: 6px; border-bottom: 1px solid var(--border); flex-wrap: nowrap; }
+  .fd .fif-opts .fd-tg { display: inline-flex; align-items: center; height: 24px; min-width: 26px; justify-content: center; padding: 0 6px; border-radius: 4px;
+    border: 1px solid var(--border); background: transparent; color: var(--text-dim); font: 600 11px var(--mono); cursor: pointer; }
+  .fd .fif-opts .fd-tg input { display: none; }
+  .fd .fif-opts .fd-tg:has(input:checked), .fd .fif-opts .fd-tg.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+  .fd .fif-opts .fd-sep { width: 1px; height: 16px; background: var(--border); }
+  .fd .fif-opts #fifGlob { flex: 1; max-width: none; min-width: 120px; }
+  .fd .fif-opts select { max-width: 200px; }
+  .fd .fif-opts .fd-ctx input { width: 40px; }
+  .fd .fif-repl { padding: 6px 12px; border-bottom: 1px solid var(--border); }
+  .fd .fif-body { border-radius: 0; }
 
   /* Settings modal */
   .modal-bg {
@@ -701,7 +748,7 @@
   <span class="tb-title">ReadO</span>
   <nav class="menubar" id="menubar"></nav>
   <div class="tb-search-wrap">
-    <button class="tb-search" onclick="openQO('')" title="Go to file (Ctrl+P) · Commands: > (Ctrl+Shift+P) · Text in files: % (Ctrl+Shift+F opens Find in Files)"><span>⌕</span><span class="ellipsis">Go to file (Ctrl+P) · Commands (Ctrl+Shift+P) · Find in Files (Ctrl+Shift+F)</span></button>
+    <button class="tb-search" onclick="openQO('')" title="Search files (Ctrl+P) · Find in Files (Ctrl+Shift+F, or type %) · Commands (Ctrl+Shift+P, or type >)"><span>⌕</span><span class="ellipsis" id="tbSearchLbl">Search files (Ctrl+P) · Find in Files (Ctrl+Shift+F) · Commands (Ctrl+Shift+P)</span></button>
   </div>
   <div class="win-ctl">
     <button id="winMin" title="minimize" onclick="winApi('win_minimize')">&#xE921;</button>
@@ -800,54 +847,58 @@
   </div>
 </div>
 
-<div class="qo-bg" id="fifBg" onclick="if(event.target===this)closeFIF()">
-  <div class="fif">
-    <div class="fif-head">
-      <input type="text" id="fifQ" placeholder="find in files..." autocomplete="off" list="fifRecent" />
-      <datalist id="fifRecent"></datalist>
-      <div class="fif-repl">
-        <input type="text" id="fifRepl" placeholder="replace with...  (regex: $1, $&)" autocomplete="off" />
-        <button id="fifReplBtn" onclick="previewReplace()" title="preview replacements in all matching files, then pick which to apply">replace…</button>
-      </div>
-      <div class="fif-opts">
-        <select id="fifScope" title="search in">
-          <option value="">whole folder</option>
-        </select>
-        <label title="case sensitive"><input type="checkbox" id="fifCase" /> Aa</label>
-        <label title="whole word"><input type="checkbox" id="fifWord" /> W</label>
-        <label title="regex"><input type="checkbox" id="fifRegex" /> .*</label>
-        <input type="text" id="fifGlob" class="fif-glob" placeholder="files to include: *.java, src/**" title="comma-separated globs; empty = every text file" autocomplete="off" />
-        <label title="context lines">ctx
-          <input type="number" id="fifCtx" min="0" max="10" value="2" style="width:42px;" />
-        </label>
-        <span id="fifSummary"></span>
-      </div>
+<!-- Find File (Quick Open, Ctrl+P) and Find in Files (Ctrl+Shift+F): one frame (.fd), same tabs / input / rows / keys -->
+<div class="qo-bg fd-bg" id="fifBg" onclick="if(event.target===this)closeFIF()">
+  <div class="fd fif">
+    <div class="fd-tabs">
+      <span class="fd-tab" data-fd="files" title="Find File (Ctrl+P)">Files <kbd>Ctrl+P</kbd></span>
+      <span class="fd-tab active" data-fd="text" title="Find in Files (Ctrl+Shift+F)">In Files <kbd>Ctrl+Shift+F</kbd></span>
+      <span class="fd-tab" data-fd="cmd" title="Commands (Ctrl+Shift+P) — prefix >">Commands <kbd>&gt;</kbd></span>
+      <span class="fd-tab" data-fd="sym" title="Symbols in the folder (Ctrl+T) — prefix #">Symbols <kbd>#</kbd></span>
+      <span class="fd-sum" id="fifSummary"></span>
+    </div>
+    <input type="text" id="fifQ" class="fd-input" placeholder="Find in Files — text in every file of the folder  (Tab: Find File)" autocomplete="off" spellcheck="false" />
+    <div class="fif-opts" id="fifOpts">
+      <label class="fd-tg" title="Match case (Alt+C)"><input type="checkbox" id="fifCase" />Cc</label>
+      <label class="fd-tg" title="Words (Alt+W)"><input type="checkbox" id="fifWord" />W</label>
+      <label class="fd-tg" title="Regex (Alt+X)"><input type="checkbox" id="fifRegex" />.*</label>
+      <span class="fd-sep"></span>
+      <input type="text" id="fifGlob" class="fif-glob" placeholder="file mask: *.java, src/**" title="files to include — comma-separated globs; empty = every text file" autocomplete="off" spellcheck="false" />
+      <select id="fifScope" title="search in">
+        <option value="">whole folder</option>
+      </select>
+      <label class="fd-ctx" title="context lines in the preview">ctx <input type="number" id="fifCtx" min="0" max="10" value="2" /></label>
+      <button class="fd-tg fd-more" id="fifReplToggle" title="replace in files" onclick="toggleFIFReplace()">Replace</button>
+    </div>
+    <div class="fif-repl" id="fifReplRow" style="display:none">
+      <input type="text" id="fifRepl" placeholder="replace with...  (regex: $1, $&)" autocomplete="off" />
+      <button id="fifReplBtn" onclick="previewReplace()" title="preview replacements in all matching files, then pick which to apply">replace…</button>
     </div>
     <div class="fif-body">
-      <div class="fif-results" id="fifResults"></div>
+      <div class="fif-results fd-list" id="fifResults"></div>
       <div class="fif-preview" id="fifPreview">
         <div class="qo-empty">select a result for preview</div>
       </div>
     </div>
+    <div class="fd-foot">↑↓ select · Enter open · Ctrl+Enter open beside · Tab Find File · Esc close</div>
   </div>
 </div>
 
-<div class="qo-bg" id="qoBg" onclick="if(event.target===this)closeQO()">
-  <div class="qo">
-    <input type="text" id="qoInput" placeholder="file name  ·  >command  ·  %text in files  ·  #symbol  ·  @symbol in file  ·  :line  ·  Esc to close" autocomplete="off" />
-    <div class="hint qo-modes" id="qoModes">
-      <span class="qo-mode" data-prefix="" title="Go to file (Ctrl+P)">Files</span>
-      <span class="qo-mode" data-prefix=">" title="Commands (Ctrl+Shift+P)"><code>&gt;</code> Commands</span>
-      <span class="qo-mode" data-prefix="%" title="Text in files — Ctrl+Enter or Ctrl+Shift+F: the Find in Files window"><code>%</code> Text</span>
-      <span class="qo-mode" data-prefix="#" title="Symbol in folder (Ctrl+T)"><code>#</code> Symbols</span>
+<div class="qo-bg fd-bg" id="qoBg" onclick="if(event.target===this)closeQO()">
+  <div class="fd qo">
+    <div class="fd-tabs" id="qoModes">
+      <span class="fd-tab" data-fd="files" title="Find File (Ctrl+P)">Files <kbd>Ctrl+P</kbd></span>
+      <span class="fd-tab" data-fd="text" title="Find in Files (Ctrl+Shift+F) — prefix %">In Files <kbd>Ctrl+Shift+F</kbd></span>
+      <span class="fd-tab" data-fd="cmd" title="Commands (Ctrl+Shift+P) — prefix >">Commands <kbd>&gt;</kbd></span>
+      <span class="fd-tab" data-fd="sym" title="Symbols in the folder (Ctrl+T) — prefix #">Symbols <kbd>#</kbd></span>
     </div>
+    <input type="text" id="qoInput" class="fd-input" placeholder="Find File — file name  ·  >command  ·  %text in files  ·  #symbol  ·  @symbol in file  ·  :line" autocomplete="off" spellcheck="false" />
     <div class="hint" id="qoHint">
-      <code>text</code> file ·
-      <code>&gt;cmd</code> command ·
+      <code>name</code> file (<code>*</code> wildcard) ·
       <code>%text</code> in files ·
+      <code>&gt;cmd</code> command ·
       <code>@name</code> symbol in file ·
-      <code>:42</code> line ·
-      ↑/↓ · Enter
+      <code>:42</code> line
     </div>
     <div class="hint qo-cats" id="qoCats" style="display:none">
       <span class="qo-cat active" data-cat="">all</span>
@@ -856,7 +907,8 @@
       <span class="qo-cat" data-cat="field">fields / variables</span>
       <span class="qo-idx" id="qoIdx"></span>
     </div>
-    <div class="qo-list" id="qoList"></div>
+    <div class="qo-list fd-list" id="qoList"></div>
+    <div class="fd-foot">↑↓ select · Enter open · Ctrl+Enter open beside · Tab Find in Files · Esc close</div>
   </div>
 </div>
 
@@ -2817,15 +2869,67 @@ let _fifSel = -1;         // index into _fifResults
 let _fifTerm = '';
 let _fifFind = null;      // {term, regex, caseS, word} of the shown results
 
+let _fifMax = 0;           // 0: the settings' cap; "show more" raises it
+const FIF_OPT_IDS = { caseS: 'fifCase', word: 'fifWord', regex: 'fifRegex', glob: 'fifGlob', ctx: 'fifCtx', scope: 'fifScope' };
+function restoreFIFOpts() {  // STATE.fifOpts: the option bar as it was last left
+  const o = STATE.fifOpts && typeof STATE.fifOpts === 'object' ? STATE.fifOpts : {};
+  for (const [k, id] of Object.entries(FIF_OPT_IDS)) {
+    if (!(k in o)) continue;
+    const e = document.getElementById(id);
+    if (e.type === 'checkbox') e.checked = !!o[k];
+    else if (e.tagName === 'SELECT') { if ([...e.options].some(x => x.value === o[k])) e.value = o[k]; }
+    else e.value = o[k];
+  }
+}
+function saveFIFOpts() {
+  const o = {};
+  for (const [k, id] of Object.entries(FIF_OPT_IDS)) { const e = document.getElementById(id); o[k] = e.type === 'checkbox' ? e.checked : e.value; }
+  STATE.fifOpts = o;
+  saveState();
+}
 function openFIF(prefill) {
   closeQO();
   closeSettings();
+  restoreFIFOpts();
+  toggleFIFReplace(!!STATE.fifReplace);
   document.getElementById('fifBg').classList.add('show');
   const inp = document.getElementById('fifQ');
   if (prefill !== undefined) inp.value = prefill;
   inp.focus();
   inp.select();
-  loadFIFRecent();
+  if (!inp.value.trim()) loadFIFRecent();
+  else if (prefill !== undefined) runFIF();
+}
+function fifIsOpen() { return document.getElementById('fifBg').classList.contains('show'); }
+function qoIsOpen() { return document.getElementById('qoBg').classList.contains('show'); }
+// the two dialogs swap in place (tabs, Tab, Ctrl+P / Ctrl+Shift+F); what was typed comes along
+function fdSwitch(to, term) {
+  term = (term || '').replace(/^[>%#@:]/, '');
+  if (to === 'text') return openFIF(term);
+  closeFIF();
+  openQO((to === 'cmd' ? '>' : to === 'sym' ? '#' : '') + term);
+}
+function fdTerm() {
+  if (fifIsOpen()) return document.getElementById('fifQ').value;
+  if (qoIsOpen()) return document.getElementById('qoInput').value.replace(/^[>%#@:]/, '');
+  return '';
+}
+document.querySelectorAll('.fd-tabs').forEach(t => t.addEventListener('mousedown', e => {
+  const tab = e.target.closest('.fd-tab');
+  if (!tab) return;
+  e.preventDefault();
+  fdSwitch(tab.dataset.fd, fdTerm());
+}));
+function toggleFIFReplace(force) {
+  const row = document.getElementById('fifReplRow');
+  const on = force != null ? force : row.style.display === 'none';
+  row.style.display = on ? '' : 'none';
+  document.getElementById('fifReplToggle').classList.toggle('on', on);
+  if (force == null) {
+    STATE.fifReplace = on;
+    saveState();
+    if (on) document.getElementById('fifRepl').focus();
+  }
 }
 function closeFIF() {
   document.getElementById('fifBg').classList.remove('show');
@@ -2843,9 +2947,9 @@ async function runFIF() {
   if (_fifAbort) _fifAbort.abort();
   if (!q) {
     summary.textContent = '';
-    resultsEl.innerHTML = '<div class="qo-empty">type to search</div>';
     previewEl.innerHTML = '<div class="qo-empty">select a result for preview</div>';
     _fifResults = []; _fifSel = -1; _fifTerm = '';
+    loadFIFRecent();
     return;
   }
   const caseS = document.getElementById('fifCase').checked ? 1 : 0;
@@ -2855,9 +2959,10 @@ async function runFIF() {
   const scope = fifScopeValue();
   const ctx = parseInt(document.getElementById('fifCtx').value) || 0;
   const find = { term: q, regex: !!regex, caseS: !!caseS, word: !!word };
-  const url = `/api/search?q=${encodeURIComponent(q)}&case=${caseS}&regex=${regex}&word=${word}&glob=${encodeURIComponent(glob)}&scope=${encodeURIComponent(scope)}&ctx=${ctx}`;
+  const url = `/api/search?q=${encodeURIComponent(q)}&case=${caseS}&regex=${regex}&word=${word}&glob=${encodeURIComponent(glob)}&scope=${encodeURIComponent(scope)}&ctx=${ctx}` +
+    (_fifMax ? `&max=${_fifMax}` : '');
   summary.textContent = 'searching...';
-  resultsEl.innerHTML = '';
+  if (!_fifMax) resultsEl.innerHTML = '';  // "show more" keeps the list until the longer one arrives
   previewEl.innerHTML = '<div class="qo-empty">searching...</div>';
   const seq = ++_fifReqSeq;
   _fifAbort = new AbortController();
@@ -2904,10 +3009,14 @@ function renderFIFResults(data, term) {
     (byFile[r.path] = byFile[r.path] || []).push(r);
   });
   for (const file of Object.keys(byFile)) {
+    // file group: badge · name · folder (dim) · count — the same look as a Find File row
     const fh = document.createElement('div');
     fh.className = 'res-file';
-    fh.textContent = `${file}  (${byFile[file].length})`;
-    fh.onclick = () => { closeFIF(); openFile(file, byFile[file][0].line, _fifFind); };
+    const cut = file.lastIndexOf('/');
+    fh.innerHTML = fileBadge(file) + `<span class="qo-name">${escapeHtml(file.slice(cut + 1))}</span>` +
+      (cut > 0 ? `<span class="qo-dir">${escapeHtml(file.slice(0, cut))}</span>` : '') + `<span class="cnt">${byFile[file].length}</span>`;
+    fh.title = file;
+    fh.onclick = e => openFIFHit(byFile[file][0], e.ctrlKey || e.metaKey);
     c.appendChild(fh);
     for (const r of byFile[file]) {
       const row = document.createElement('div');
@@ -2915,9 +3024,9 @@ function renderFIFResults(data, term) {
       row.dataset.idx = r._idx;
       const ln = document.createElement('span'); ln.className = 'ln'; ln.textContent = r.line;
       const tx = document.createElement('span'); tx.className = 'tx';
-      tx.innerHTML = highlight(r.text, term);
+      tx.innerHTML = highlight(String(r.text).replace(/^\s+/, ''), term);
       row.appendChild(ln); row.appendChild(tx);
-      row.onclick = () => { closeFIF(); openFile(r.path, r.line, _fifFind); };
+      row.onclick = e => openFIFHit(r, e.ctrlKey || e.metaKey);
       row.addEventListener('mouseenter', () => {
         _fifSel = r._idx;
         updateFIFSelection();
@@ -2925,7 +3034,21 @@ function renderFIFResults(data, term) {
       c.appendChild(row);
     }
   }
+  if (data.truncated && (_fifMax || _settings.search_max_results || 500) < 20000) {
+    const more = document.createElement('div');
+    more.className = 'res-line fd-more-row';
+    more.textContent = `show more (first ${_fifResults.length} shown)`;
+    more.onclick = () => { _fifMax = Math.min(20000, (_fifMax || _settings.search_max_results || 500) * 4); runFIF(); };
+    c.appendChild(more);
+  }
   updateFIFSelection();
+}
+// Enter / click: open the hit; Ctrl+Enter / Ctrl+click: in the other split pane
+function openFIFHit(r, beside) {
+  if (!r) return;
+  closeFIF();
+  if (beside) openInOtherPane(r.path, activePaneIdx, true, null, r.line, _fifFind);
+  else openFile(r.path, r.line, _fifFind);
 }
 
 function updateFIFSelection() {
@@ -2961,32 +3084,46 @@ function renderFIFPreview(r) {
 }
 
 // ===== Recent searches (saved UI state) =====
+// empty query: recent searches (click = search again), like Find File's recent files
 function loadFIFRecent() {
-  const dl = document.getElementById('fifRecent');
-  dl.innerHTML = STATE.fifRecent.map(s => `<option value="${escapeHtml(String(s))}">`).join('');
+  const c = document.getElementById('fifResults');
+  if (!c || document.getElementById('fifQ').value.trim()) return;
+  const rec = STATE.fifRecent.slice(0, 15);
+  c.innerHTML = rec.length ? '<div class="fd-recent-h">recent searches</div>' + rec.map((s, i) =>
+    `<div class="res-line fd-recent" data-q="${escapeHtml(String(s))}"><span class="ln">↺</span><span class="tx">${escapeHtml(String(s))}</span></div>`).join('')
+    : '<div class="qo-empty">type to search text in every file of the folder</div>';
+  c.querySelectorAll('.fd-recent').forEach(r => r.onclick = () => {
+    const inp = document.getElementById('fifQ');
+    inp.value = r.dataset.q;
+    inp.focus();
+    runFIF();
+  });
 }
 function saveFIFRecent(q) {
   if (!q) return;
   STATE.fifRecent = [q].concat(STATE.fifRecent.filter(s => s !== q)).slice(0, 15);
-  loadFIFRecent();
   saveState();
 }
 
 // ===== Wiring =====
 document.getElementById('fifQ').addEventListener('input', () => {
   if (_fifTimer) clearTimeout(_fifTimer);
+  _fifMax = 0;
   _fifTimer = setTimeout(runFIF, 200);
 });
 document.getElementById('fifQ').addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
+  if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey) {
     e.preventDefault();
-    if (_fifSel >= 0 && _fifResults.length) {
-      const r = _fifResults[_fifSel];
-      closeFIF();
-      openFile(r.path, r.line, _fifFind);
-    } else {
-      runFIF();
-    }
+    fdSwitch('files', e.target.value);
+  } else if (e.altKey && /^[cwx]$/i.test(e.key)) {  // option toggles, as in IntelliJ
+    e.preventDefault();
+    const box = document.getElementById({ c: 'fifCase', w: 'fifWord', x: 'fifRegex' }[e.key.toLowerCase()]);
+    box.checked = !box.checked;
+    box.dispatchEvent(new Event('change'));
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (_fifSel >= 0 && _fifResults.length) openFIFHit(_fifResults[_fifSel], e.ctrlKey || e.metaKey);
+    else runFIF();
   } else if (e.key === 'Escape') {
     e.preventDefault(); closeFIF();
   } else if (e.key === 'ArrowDown') {
@@ -3005,10 +3142,11 @@ document.getElementById('fifQ').addEventListener('keydown', e => {
 });
 document.getElementById('fifGlob').addEventListener('input', () => {
   if (_fifTimer) clearTimeout(_fifTimer);
-  _fifTimer = setTimeout(runFIF, 300);
+  _fifMax = 0;
+  _fifTimer = setTimeout(() => { saveFIFOpts(); runFIF(); }, 300);
 });
 ['fifCase','fifWord','fifRegex','fifScope','fifCtx'].forEach(id => {
-  document.getElementById(id).addEventListener('change', runFIF);
+  document.getElementById(id).addEventListener('change', () => { _fifMax = 0; saveFIFOpts(); runFIF(); });
 });
 
 function highlight(text, term) {
@@ -3150,7 +3288,7 @@ const QO_PAGE = 50;
 function openQO(prefill) {
   closeFIF();
   closeSettings();
-  document.getElementById('qoInput').placeholder = 'file name  ·  >command  ·  %text in files  ·  #symbol  ·  @symbol in file  ·  :line  ·  Esc to close';
+  document.getElementById('qoInput').placeholder = 'Find File — file name  ·  >command  ·  %text in files  ·  #symbol  ·  @symbol in file  ·  :line';
   document.getElementById('qoBg').classList.add('show');
   const inp = document.getElementById('qoInput');
   inp.value = prefill || '';
@@ -3211,9 +3349,8 @@ async function runQO() {
     runWorkspaceSymbols(raw.slice(1));
     return;
   }
-  if (raw.startsWith('%')) {
-    _qoMode = 'text';
-    runTextSearch(raw.slice(1));
+  if (raw.startsWith('%')) {  // Find in Files takes over, with what follows the %
+    fdSwitch('text', raw);
     return;
   }
   _qoMode = 'file';
@@ -3270,34 +3407,6 @@ function runCommandSearch(q) {
   _qoItems = items;
   _qoSel = 0;
   renderQO(q);
-}
-
-// '%' in Quick Open: Find in Files without its window (plain text, whole folder); the first row
-// (and Ctrl+Enter / Ctrl+Shift+F) moves the term into the Find in Files window with its options
-let _qoTextSeq = 0;
-async function runTextSearch(q) {
-  const term = q.trim();
-  const list = document.getElementById('qoList');
-  const fifRow = { label: term ? `Find in Files: "${term}"` : 'Find in Files…', meta: 'Ctrl+Shift+F · options, replace, preview', fif: term };
-  if (term.length < 2) {
-    _qoItems = [fifRow]; _qoSel = 0; renderQO();
-    list.insertAdjacentHTML('beforeend', '<div class="qo-empty">type at least 2 characters to search text in files</div>');
-    return;
-  }
-  const seq = ++_qoTextSeq;
-  _qoItems = [fifRow]; _qoSel = 0; renderQO();
-  list.insertAdjacentHTML('beforeend', '<div class="qo-empty">searching…</div>');
-  let data;
-  try {
-    data = await (await fetch(`/api/search?q=${encodeURIComponent(term)}&case=0&regex=0&word=0&glob=&scope=&ctx=0`)).json();
-  } catch (e) { data = { error: e.message }; }
-  if (seq !== _qoTextSeq || _qoMode !== 'text') return;
-  if (data.error) { _qoItems = [fifRow]; renderQO(); list.insertAdjacentHTML('beforeend', `<div class="qo-empty">✗ ${escapeHtml(data.error)}</div>`); return; }
-  fifRow.meta = `${data.total}${data.truncated ? '+' : ''} matches · ${data.files} files — Ctrl+Enter: Find in Files`;
-  _qoItems = [fifRow].concat((data.results || []).slice(0, 300).map(r => ({
-    label: `${r.path}:${r.line}`, meta: String(r.text || '').trim().slice(0, 120), path: r.path, line: r.line, find: term })));
-  _qoSel = _qoItems.length > 1 ? 1 : 0;
-  renderQO();
 }
 
 let _qoAbort = null;
@@ -3455,6 +3564,18 @@ function renderQO(term) {
     const div = document.createElement('div');
     div.className = 'qo-item' + (idx === _qoSel ? ' sel' : '') + (it.disabled ? ' disabled' : '');
     let labelHtml;
+    if (it.path && (_qoMode === 'file' || _qoMode === 'pick') && it.label === it.path) {
+      // Find File row: badge · file name · folder (dim), matched letters marked in both
+      const cut = it.path.lastIndexOf('/'), ind = it.indices || [];
+      const name = it.path.slice(cut + 1), dir = cut > 0 ? it.path.slice(0, cut) : '';
+      labelHtml = fileBadge(name) + '<span class="qo-name">' + renderWithIndices(name, ind.filter(i => i > cut).map(i => i - cut - 1)) + '</span>' +
+        (dir ? '<span class="qo-dir">' + renderWithIndices(dir, ind.filter(i => i < cut)) + '</span>' : '');
+      div.title = it.path;
+      div.innerHTML = labelHtml + (it.meta ? `<span class="qo-meta">${escapeHtml(it.meta)}</span>` : '');
+      div.onclick = e => activateQO(idx, e.ctrlKey || e.metaKey);
+      list.appendChild(div);
+      return;
+    }
     if (it.indices) {
       labelHtml = renderWithIndices(it.label, it.indices);
     } else if (term && _qoMode === 'symbol') {
@@ -3500,13 +3621,7 @@ function activateQO(idx, beside) {
   const it = _qoItems[idx];
   if (!it) return;
   closeQO();
-  if (_qoMode === 'text') {
-    const term = it.fif != null ? it.fif : it.find;
-    if (it.fif != null || beside) {
-      openFIF(term);
-      if (term) runFIF();
-    } else openFile(it.path, it.line, { term, caseS: false, word: false });
-  } else if (_qoMode === 'command' && it.cmd) {
+  if (_qoMode === 'command' && it.cmd) {
     if (!it.disabled) runCommand(it.cmd);
   } else if (beside && it.path && (_qoMode === 'file' || _qoMode === 'wsymbol')) {
     const find = _qoMode === 'wsymbol' ? { term: it.label, caseS: true, word: true } : null;
@@ -3566,13 +3681,9 @@ document.getElementById('qoInput').addEventListener('keydown', e => {
   } else if (e.key === 'Escape') {
     e.preventDefault();
     closeQO();
-  } else if ((e.key === 'F' || e.key === 'f') && e.ctrlKey && e.shiftKey && _qoMode === 'text') {
-    e.preventDefault();  // the typed text moves into the Find in Files window
-    e.stopPropagation();
-    const term = e.target.value.slice(1).trim();
-    closeQO();
-    openFIF(term);
-    if (term) runFIF();
+  } else if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && _qoMode !== 'pick' && !_qoFileHandler) {
+    e.preventDefault();  // Find File ⇄ Find in Files, the typed text comes along
+    fdSwitch('text', e.target.value);
   }
 });
 
@@ -3622,9 +3733,9 @@ const COMMANDS = [
   { id: 'edit.selectAll', cat: 'Edit', title: 'Select All', keys: 'Ctrl+A', run: edAction('editor.action.selectAll') },
   { id: 'edit.find', cat: 'Edit', title: 'Find', keys: 'Ctrl+F', run: edAction('actions.find') },
   { id: 'edit.replace', cat: 'Edit', title: 'Replace', keys: 'Ctrl+H', run: edAction('editor.action.startFindReplaceAction') },
-  { id: 'edit.findInFiles', cat: 'Edit', title: 'Find in Files', keys: 'Ctrl+Shift+F', bind: ['Ctrl+Shift+F'], run: () => openFIF() },
+  { id: 'edit.findInFiles', cat: 'Edit', title: 'Find in Files', keys: 'Ctrl+Shift+F', bind: ['Ctrl+Shift+F'], run: () => qoIsOpen() ? fdSwitch('text', fdTerm()) : openFIF() },
   { id: 'edit.replaceInFiles', cat: 'Edit', title: 'Replace in Files', keys: 'Ctrl+Shift+H', bind: ['Ctrl+Shift+H'],
-    run: () => { openFIF(); document.getElementById('fifRepl').focus(); } },
+    run: () => { openFIF(); if (!document.getElementById('fifReplToggle').classList.contains('on')) toggleFIFReplace(); document.getElementById('fifRepl').focus(); } },
   { id: 'edit.comment', cat: 'Edit', title: 'Toggle Line Comment', keys: 'Ctrl+/', run: edAction('editor.action.commentLine') },
   { id: 'edit.toggleEditing', cat: 'Edit', title: 'Editing', keys: 'Ctrl+Shift+E', bind: ['Ctrl+Shift+E'],
     run: () => toggleEditMode(), checked: () => !!STATE.editMode },
@@ -3666,7 +3777,7 @@ const COMMANDS = [
   { id: 'view.zoomReset', cat: 'View', title: 'Font Size Reset', keys: 'Ctrl+0', bind: ['Ctrl+0'], run: () => zoomFont(0) },
   { id: 'view.theme', cat: 'View', title: 'Dark Theme', run: () => toggleTheme(), checked: () => getTheme() === 'dark' },
   // Go
-  { id: 'go.file', cat: 'Go', title: 'Go to File…', keys: 'Ctrl+P', bind: ['Ctrl+P', 'Ctrl+Shift+N'], capture: true, global: true, run: () => openQO('') },
+  { id: 'go.file', cat: 'Go', title: 'Go to File…', keys: 'Ctrl+P', bind: ['Ctrl+P', 'Ctrl+Shift+N'], capture: true, global: true, run: () => fifIsOpen() ? fdSwitch('files', fdTerm()) : openQO('') },
   { id: 'go.symbolFolder', cat: 'Go', title: 'Go to Symbol in Folder…', keys: 'Ctrl+T', bind: ['Ctrl+T', 'Ctrl+Shift+Alt+N'], run: () => openQO('#') },
   { id: 'go.symbolFile', cat: 'Go', title: 'Go to Symbol in File…', keys: 'Ctrl+Shift+O', bind: ['Ctrl+Shift+O'], run: () => openQO('@') },
   { id: 'go.line', cat: 'Go', title: 'Go to Line…', keys: 'Ctrl+G', bind: ['Ctrl+G'], run: () => openQO(':') },
@@ -4372,7 +4483,24 @@ function fitToolbar() {
 (() => {
   document.querySelectorAll('#tbGroups [data-cmd]').forEach(b => b.addEventListener('click', () => runCommand(b.dataset.cmd)));
   new ResizeObserver(() => fitToolbar()).observe(document.querySelector('.topbar'));
+  new ResizeObserver(() => fitSearchLabel()).observe(document.querySelector('.tb-search'));
 })();
+// title-bar search label: the longest that fits — Find File and Find in Files go last
+const SEARCH_LABELS = [
+  'Search files (Ctrl+P) · Find in Files (Ctrl+Shift+F) · Commands (Ctrl+Shift+P)',
+  'Search files (Ctrl+P) · Find in Files (Ctrl+Shift+F)',
+  'Files Ctrl+P · In Files Ctrl+Shift+F',
+  'Files · In Files',
+  'Search',
+];
+function fitSearchLabel() {
+  const el = document.getElementById('tbSearchLbl');
+  if (!el) return;
+  for (const t of SEARCH_LABELS) {
+    el.textContent = t;
+    if (el.scrollWidth <= el.clientWidth + 1) return;
+  }
+}
 applyKeymap(STATE.keymap);
 async function toggleGitignore() {
   const r = await postJson('/api/settings', { respect_gitignore: !_settings.respect_gitignore });
@@ -5152,22 +5280,9 @@ function updateQOChrome() {
   const ws = v.startsWith('#');
   document.getElementById('qoCats').style.display = ws ? '' : 'none';
   document.getElementById('qoHint').style.display = ws ? 'none' : '';
-  const pre = /^[>%#]/.test(v) ? v[0] : '';
-  document.querySelectorAll('#qoModes .qo-mode').forEach(m => m.classList.toggle('active', m.dataset.prefix === pre));
+  const tab = v.startsWith('>') ? 'cmd' : v.startsWith('#') ? 'sym' : 'files';
+  document.querySelectorAll('#qoModes .fd-tab').forEach(m => m.classList.toggle('active', m.dataset.fd === tab));
 }
-// mode tabs: switch the prefix, keep what was typed
-document.getElementById('qoModes').addEventListener('mousedown', e => {
-  const m = e.target.closest('.qo-mode');
-  if (!m) return;
-  e.preventDefault();
-  const inp = document.getElementById('qoInput');
-  const rest = inp.value.replace(/^[>%#@:]/, '');
-  inp.value = m.dataset.prefix + rest;
-  inp.focus();
-  inp.setSelectionRange(inp.value.length, inp.value.length);
-  updateQOChrome();
-  runQO();
-});
 document.getElementById('qoInput').addEventListener('input', updateQOChrome);
 function showIndexStatus(st) {
   const el = document.getElementById('sbIndex');

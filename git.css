@@ -285,10 +285,3 @@ body.theme-dark .gtb-dlg .warn { color: #f0c27a; }
 .gc-row:has(.o) { flex-wrap: wrap; }
 .gc-row .o { flex-basis: 100%; margin: 0 0 4px 70px; padding: 2px 8px; white-space: pre-wrap; color: var(--text-dim);
   border-left: 2px solid var(--border-strong); font: 11px var(--mono); }
-
-/* Quick Open mode tabs (files · > commands · % text · # symbols) */
-.qo .qo-modes { display: flex; gap: 4px; padding: 5px 12px; font-family: inherit; }
-.qo .qo-mode { padding: 2px 9px; border-radius: 4px; cursor: pointer; font-size: 11.5px; color: var(--text-dim); border: 1px solid transparent; user-select: none; }
-.qo .qo-mode:hover { background: var(--hover); }
-.qo .qo-mode.active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.qo .qo-mode code { padding: 0 4px; }

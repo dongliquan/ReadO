@@ -1189,8 +1189,11 @@ def _compile_query(query, case_sensitive, regex, whole_word):
         return None, f"regex: {e}"
 
 
+SEARCH_MORE_MAX = 20_000  # "show more" in Find in Files raises the cap up to this
+
+
 def find_in_files(query: str, case_sensitive: bool, regex: bool, whole_word: bool,
-                  scope: str = "", glob: str = "", context: int = 2):
+                  scope: str = "", glob: str = "", context: int = 2, limit: int = 0):
     base = base_root()
     scope_root = _safe_join(base, scope) if scope else base
     if not scope_root or not os.path.isdir(scope_root):
@@ -1217,6 +1220,8 @@ def find_in_files(query: str, case_sensitive: bool, regex: bool, whole_word: boo
         glob_re = re.compile("|".join(pats), re.IGNORECASE) if pats else None
 
     max_results = SETTINGS.get("search_max_results", 500)
+    if limit:
+        max_results = max(1, min(int(limit), SEARCH_MORE_MAX))
     context = max(0, min(int(context), 10))
     per_file_cap = 100
     gen = _new_gen("search")
@@ -3994,6 +3999,10 @@ class Handler(BaseHTTPRequestHandler):
                 ctx = int(q.get("ctx", "2"))
             except ValueError:
                 ctx = 2
+            try:
+                limit = int(q.get("max", "0") or 0)
+            except ValueError:
+                limit = 0
             if not _SEARCH_GATE.acquire(blocking=False):
                 return self._send(429, {"error": "search capacity reached; try again shortly"})
             try:
@@ -4005,6 +4014,7 @@ class Handler(BaseHTTPRequestHandler):
                     scope=q.get("scope", ""),
                     glob=q.get("glob", ""),
                     context=ctx,
+                    limit=limit,
                 )
             finally:
                 _SEARCH_GATE.release()

@@ -66,6 +66,126 @@ def _put(cwd, name, text):
         f.write(text)
 
 
+def find_dialog_tests(pg, ev, shot, base):
+    """Find File (Ctrl+P) and Find in Files (Ctrl+Shift+F): one frame, switching keeps the text, prefixes, options saved."""
+    QO, FIF = "document.getElementById('qoBg').classList.contains('show')", "document.getElementById('fifBg').classList.contains('show')"
+    frame = lambda sel: ev(f"(() => {{ const r = document.querySelector('{sel} .fd').getBoundingClientRect(), i = document.querySelector('{sel} .fd-input').getBoundingClientRect();"
+                           f" return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(i.height)]; }})()")
+    active = lambda sel: ev(f"document.querySelector('{sel} .fd-tab.active').dataset.fd")
+    with open(os.path.join(base, "many.txt"), "w", encoding="utf-8") as f:
+        f.write("".join(f"needle {i}\n" for i in range(40)))
+
+    print("== find dialogs: Find File / Find in Files")
+    pg.click(".tb-search")
+    pg.wait_for_selector("#qoBg.show")
+    check(active("#qoBg") == "files" and ev("document.getElementById('qoInput').placeholder").startswith("Find File"), "search box click: Find File, Files tab")
+    pg.keyboard.type("f.txt")
+    pg.wait_for_function("_qoItems.some(i => i.path === 'my-repo/f.txt')", timeout=10000)
+    row = ev("""(() => { const r = [...document.querySelectorAll('#qoList .qo-item')].find(x => x.title === 'my-repo/f.txt');
+      return r && {badge: !!r.querySelector('.fbadge'), name: r.querySelector('.qo-name').textContent, dir: r.querySelector('.qo-dir').textContent,
+                   mark: r.querySelectorAll('.qo-name mark').length, h: Math.round(r.getBoundingClientRect().height)}; })()""")
+    check(row and row["badge"] and row["name"] == "f.txt" and row["dir"] == "my-repo" and row["mark"] >= 5, f"file row: badge · name (matches marked) · dim folder ({row})")
+    fq = frame("#qoBg")
+    shot("f1-find-file")
+    pg.keyboard.press("Tab")
+    pg.wait_for_function(FIF + " && !" + QO, timeout=5000)
+    check(ev("document.getElementById('fifQ').value") == "f.txt" and active("#fifBg") == "text", "Tab: Find in Files with the same text, In Files tab")
+    ff = frame("#fifBg")
+    check(fq[:3] == ff[:3] and fq[3] == ff[3], f"same frame: position / width / input height ({fq} vs {ff})")
+    pg.keyboard.press("Tab")
+    pg.wait_for_function(QO + " && !" + FIF, timeout=5000)
+    check(ev("document.getElementById('qoInput').value") == "f.txt", "Tab again: back to Find File, text kept")
+    pg.fill("#qoInput", "needle")
+    pg.keyboard.press("Control+Shift+F")
+    pg.wait_for_function(FIF + " && document.getElementById('fifQ').value === 'needle'", timeout=5000)
+    check(True, "Ctrl+Shift+F in Find File: Find in Files, text kept")
+    pg.wait_for_function("_fifResults.length > 0", timeout=15000)
+    rh = ev("[...document.querySelectorAll('#fifResults .res-line')].slice(0, 3).map(r => Math.round(r.getBoundingClientRect().height))")
+    gh = ev("(() => { const g = document.querySelector('#fifResults .res-file'); return {h: Math.round(g.getBoundingClientRect().height), b: !!g.querySelector('.fbadge'), n: g.querySelector('.qo-name').textContent, c: g.querySelector('.cnt').textContent}; })()")
+    check(all(h == row["h"] for h in rh) and gh["h"] == row["h"], f"same row height in both lists ({row['h']} / {rh} / {gh['h']})")
+    check(gh["b"] and gh["n"] == "many.txt" and gh["c"] == "40", f"result group: badge · file name · count ({gh})")
+    check(ev("document.querySelector('#fifResults .res-line.sel .tx mark').textContent") == "needle" and ev("!!document.querySelector('#fifPreview .pv-line.hit')"), "selected hit: match highlighted, preview shown")
+    shot("f2-find-in-files")
+    pg.keyboard.press("Control+p")
+    pg.wait_for_function(QO + " && document.getElementById('qoInput').value === 'needle'", timeout=5000)
+    check(not ev(FIF), "Ctrl+P in Find in Files: Find File, text kept")
+    pg.click("#qoModes .fd-tab[data-fd=text]")
+    pg.wait_for_function(FIF, timeout=5000)
+    check(ev("document.getElementById('fifQ').value") == "needle", "In Files tab click: switches, text kept")
+    pg.keyboard.press("Escape")
+    check(not ev(FIF) and not ev(QO), "Esc closes")
+
+    print("== find dialogs: prefixes, beside, options, recent, more")
+    ev("openQO('')")
+    pg.keyboard.type("%needle 3")
+    pg.wait_for_function(FIF + " && document.getElementById('fifQ').value === 'needle 3'", timeout=5000)
+    check(True, "% in Find File: Find in Files with the rest")
+    ev("closeFIF(); openQO('>git')")
+    check(active("#qoBg") == "cmd", "> : Commands tab")
+    ev("document.getElementById('qoInput').value = '#Foo'; updateQOChrome()")
+    check(active("#qoBg") == "sym", "# : Symbols tab")
+    ev("closeQO(); while (panes.length > 1) closePane(1)")
+    ev("openFIF('needle 7')")
+    pg.wait_for_function("_fifResults.length === 1", timeout=15000)
+    pg.keyboard.press("Control+Enter")
+    pg.wait_for_function("panes.length === 2 && panes[activePaneIdx].currentPath === 'many.txt'", timeout=10000)
+    check(not ev(FIF), "Find in Files Ctrl+Enter: opens beside (second pane)")
+    ev("while (panes.length > 1) closePane(1)")
+    ev("openQO('')")
+    pg.keyboard.type("many.txt")
+    pg.wait_for_function("_qoItems.length && _qoItems[0].path === 'many.txt'", timeout=10000)
+    pg.keyboard.press("Control+Enter")
+    pg.wait_for_function("panes.length === 2 && panes.some((p, i) => i !== 0 && p.currentPath === 'many.txt' && p.editor && p.editor.getModel())", timeout=10000)
+    check(True, "Find File Ctrl+Enter: opens beside")
+    ev("while (panes.length > 1) closePane(1)")
+    ev("openFIF('')")
+    check("needle 7" in ev("[...document.querySelectorAll('#fifResults .fd-recent')].map(r => r.dataset.q)"), "empty Find in Files: recent searches listed")
+    pg.click("#fifOpts .fd-tg:has(#fifCase)")
+    pg.fill("#fifGlob", "*.txt")
+    time.sleep(0.6)
+    check(ev("STATE.fifOpts && STATE.fifOpts.caseS === true && STATE.fifOpts.glob === '*.txt'"), "options: toggle bar state saved (Cc, file mask)")
+    check(ev("document.getElementById('fifCase').checked && getComputedStyle(document.querySelector('#fifOpts .fd-tg:has(#fifCase)')).backgroundColor !== 'rgba(0, 0, 0, 0)'"),
+          "Cc toggle shows on")
+    pg.keyboard.press("Escape")
+    ev("flushState()")
+    time.sleep(0.5)
+    pg.reload()
+    pg.wait_for_function("typeof monaco !== 'undefined' && window.GitUI && document.querySelector('#tree .node')", timeout=30000)
+    ev("openFIF('')")
+    check(ev("document.getElementById('fifCase').checked && document.getElementById('fifGlob').value === '*.txt'"), "options kept after a restart")
+    pg.click("#fifOpts .fd-tg:has(#fifCase)")
+    pg.fill("#fifGlob", "")
+    time.sleep(0.5)
+    server.SETTINGS["search_max_results"] = 10
+    try:
+        pg.fill("#fifQ", "needle")
+        pg.wait_for_function("_fifResults.length === 10 && document.querySelector('#fifResults .fd-more-row')", timeout=15000)
+        pg.click("#fifResults .fd-more-row")
+        pg.wait_for_function("_fifResults.length === 40", timeout=15000)
+        check(not ev("!!document.querySelector('#fifResults .fd-more-row')"), "cap reached: 'show more' loads the rest (10 → 40)")
+    finally:
+        server.SETTINGS["search_max_results"] = 500
+    pg.keyboard.press("Escape")
+    ev("STATE.fifReplace = false")
+    ev("runCommand('edit.replaceInFiles')")
+    check(ev(FIF) and ev("document.getElementById('fifReplRow').style.display !== 'none' && document.activeElement === document.getElementById('fifRepl')"),
+          "Replace in Files: the replace row (hidden by default) opens, its box focused")
+    pg.keyboard.press("Escape")
+    if ev(FIF):
+        ev("closeFIF()")
+
+    print("== title-bar search label: responsive")
+    widths = []
+    for w in (1500, 1000, 720, 560):
+        pg.set_viewport_size({"width": w, "height": 800})
+        time.sleep(0.4)
+        r = ev("(() => { const e = document.getElementById('tbSearchLbl'); return {t: e.textContent, fits: e.scrollWidth <= e.clientWidth + 1}; })()")
+        widths.append(len(r["t"]))
+        check(r["fits"] and ("Find in Files" in r["t"] or "In Files" in r["t"]) and "Files" in r["t"], f"{w}px: '{r['t']}' fits, files + in files kept")
+    check(widths == sorted(widths, reverse=True) and widths[0] > widths[-1], f"narrower window: shorter label {widths}")
+    pg.set_viewport_size({"width": 1500, "height": 900})
+
+
 def toolbar_tests(b, url, tmp, errors, shots):
     """Top bar: Git group (branch, Pull, Commit / Push requests), repository chip, palette modes, settings icon."""
     import gitview
@@ -82,7 +202,7 @@ def toolbar_tests(b, url, tmp, errors, shots):
     A, UP = os.path.join(base, "my-repo"), os.path.join(base, "up")
     server.SETTINGS["base_dir"] = base
     pg = b.new_page(viewport={"width": 1500, "height": 900})
-    pg.on("pageerror", lambda e: errors.append("toolbar page: " + str(e)))
+    pg.on("pageerror", lambda e: errors.append("toolbar page: " + str(e) + " " + str(getattr(e, "stack", ""))[:300]))
     pg.goto(url)
     pg.wait_for_function("typeof monaco !== 'undefined' && window.GitUI && document.querySelector('#tree .node')", timeout=30000)
     shot = lambda n: shots and pg.screenshot(path=os.path.join(shots, n + ".png"))
@@ -103,7 +223,7 @@ def toolbar_tests(b, url, tmp, errors, shots):
     check(True, "strip settings icon opens Settings")
     ev("closeSettings()")
     lbl = ev("document.querySelector('.tb-search .ellipsis').textContent")
-    check(lbl == "Go to file (Ctrl+P) · Commands (Ctrl+Shift+P) · Find in Files (Ctrl+Shift+F)", f"search box label ({lbl})")
+    check(lbl == "Search files (Ctrl+P) · Find in Files (Ctrl+Shift+F) · Commands (Ctrl+Shift+P)", f"search box label ({lbl})")
     check(ev("Object.fromEntries(['edit.findInFiles','go.file'].map(i => [i, CMD.get(i).keys]))") == {"edit.findInFiles": "Ctrl+Shift+F", "go.file": "Ctrl+P"},
           "Find in Files / Go to file keys unchanged")
 
@@ -223,39 +343,7 @@ def toolbar_tests(b, url, tmp, errors, shots):
     check(ev("document.getElementById('gtbPull').disabled") and "no upstream" in ev("document.getElementById('gtbPull').title"), "branch without upstream: Pull disabled, tooltip says why")
     check(not ev("document.getElementById('gtbPush').disabled"), "branch without upstream: Push request allowed (AgentO sets it up)")
 
-    print("== search palette: modes, % text search")
-    pg.click(".tb-search")
-    pg.wait_for_selector("#qoBg.show")
-    check("%text" in ev("document.getElementById('qoInput').placeholder") and ev("document.querySelectorAll('#qoModes .qo-mode').length") == 4,
-          "palette: placeholder + 4 mode tabs")
-    check(ev("document.querySelector('#qoModes .qo-mode.active').dataset.prefix") == "", "empty input: Files tab active")
-    pg.click("#qoModes .qo-mode[data-prefix='%']")
-    check(ev("document.getElementById('qoInput').value") == "%" and ev("document.querySelector('#qoModes .qo-mode.active').dataset.prefix") == "%", "% tab: prefix set, tab active")
-    pg.keyboard.type("remote again")
-    try:
-        pg.wait_for_function("_qoMode === 'text' && _qoItems.some(i => i.path === 'up/f.txt')", timeout=15000)
-    except Exception:
-        print("DEBUG", ev("[document.getElementById('qoInput').value, _qoMode, JSON.stringify(_qoItems).slice(0, 400), document.getElementById('qoList').textContent.slice(0, 300)]"))
-        print("DEBUG2", ev("fetch('/api/search?q=remote%20again&case=0&regex=0&word=0&glob=&scope=&ctx=0').then(r => r.text())")[:400])
-        raise
-    items = ev("_qoItems.map(i => i.label)")
-    check(items[0].startswith("Find in Files") and "up/f.txt:1" in items, f"% search: Find in Files row + matches ({items[:3]})")
-    shot("t4-palette-text")
-    first = ev("_qoItems[1].path")
-    pg.keyboard.press("Enter")
-    pg.wait_for_function(f"currentPath === '{first}'", timeout=10000)
-    check(True, "Enter: opens the match")
-    ev("openQO('%two')")
-    pg.wait_for_function("_qoMode === 'text' && _qoItems.length > 1", timeout=15000)
-    pg.keyboard.press("Control+Shift+F")
-    pg.wait_for_function("document.getElementById('fifBg').classList.contains('show')", timeout=5000)
-    check(ev("document.getElementById('fifQ').value") == "two" and not ev("document.getElementById('qoBg').classList.contains('show')"),
-          "Ctrl+Shift+F in % mode: Find in Files window with the same text")
-    ev("closeFIF()")
-    ev("openQO('>git')")
-    check(ev("document.querySelector('#qoModes .qo-mode.active').dataset.prefix") == ">", "> tab active for commands")
-    ev("closeQO()")
-
+    find_dialog_tests(pg, ev, shot, base)
     print("== top bar: narrow windows, dark theme")
     ev("openFile('my-repo/f.txt')")
     pg.wait_for_function("document.querySelector('#gtbBranch .nm').textContent === 'topic'", timeout=10000)
@@ -298,9 +386,11 @@ def main():
         pg.wait_for_function("typeof monaco !== 'undefined' && window.GitUI && document.querySelector('#tree .node')", timeout=30000)
         shot = lambda n: shots and pg.screenshot(path=os.path.join(shots, n + ".png"))
         if os.environ.get("READO_UI_ONLY") == "toolbar":  # quick run of the top-bar section alone
+            pg.close()  # it would keep polling fx repositories outside the next base folder
             toolbar_tests(b, url, tmp, errors, shots)
             b.close()
             srv.shutdown()
+            check(not errors, "no page errors" + (": " + " | ".join(errors[:5]) if errors else ""))
             print(f"\n{'FAILED: ' + str(len(FAILS)) if FAILS else 'all passed'}")
             sys.exit(1 if FAILS else 0)
 

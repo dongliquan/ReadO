@@ -64,6 +64,9 @@ pyinstaller --noconfirm --onefile --windowed --name reado ^
     --add-data "%~dp0diffwin.html;." ^
     --add-data "%~dp0diffwin.js;." ^
     --hidden-import gitview ^
+    --hidden-import nowmi ^
+    --hidden-import startguard ^
+    --runtime-hook "%~dp0rthook_nowmi.py" ^
     --add-data "%~dp0vendor;vendor" ^
     --add-data "%~dp0icon.ico;." ^
     --hidden-import server ^

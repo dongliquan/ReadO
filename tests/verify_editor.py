@@ -2173,8 +2173,97 @@ def main():
     check("second launch forwards to the instance on the fallback port", reado.forward_to_running([ext]) and raised)
     reado.remove_instance_file()
     check("stale instance file -> no forward (starts normally)", reado.forward_to_running([ext]) is False)
+
+    # --- an instance that never showed its window (start-up hang) does not swallow a second launch ---
+    import subprocess
+    reado.write_instance_file(shown=True)
+    inst_base = _json.load(open(reado.INSTANCE_PATH, encoding="utf-8"))
+    os.remove(reado.INSTANCE_PATH)
+    log_path = os.path.join(CFG, "startup.log")
+
+    def fake_instance(pid, started, shown=False):
+        d = dict(inst_base, pid=pid, started=started, shown=shown, exe=sys.executable)
+        with open(reado.INSTANCE_PATH, "w", encoding="utf-8") as f:
+            _json.dump(d, f)
+    sleeper = [sys.executable, "-c", "import time; time.sleep(120)"]
+    old_env, old_grace = os.environ.get("READO_STARTUP_TIMEOUT"), reado.STARTUP_GRACE
+    os.environ["READO_STARTUP_TIMEOUT"] = "1"
+    reado.STARTUP_GRACE = 1.0
+    try:
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait()
+        fake_instance(gone.pid, time.time())
+        t = time.time()
+        r = reado.forward_to_running([ext])
+        check("instance file of a process that is gone: dropped at once, start normally",
+              r is False and not os.path.exists(reado.INSTANCE_PATH) and time.time() - t < 1.5, f"{time.time() - t:.1f}s")
+
+        stuck = subprocess.Popen(sleeper)
+        time.sleep(0.3)
+        fake_instance(stuck.pid, time.time())
+        t = time.time()
+        r = reado.forward_to_running([ext])
+        dt = time.time() - t
+        try:
+            stuck.wait(5)
+        except subprocess.TimeoutExpired:
+            pass
+        logged = open(log_path, encoding="utf-8").read() if os.path.exists(log_path) else ""
+        check("window never shown: the second launch waits (limit + grace), ends that process, starts on its own",
+              r is False and stuck.poll() is not None and not os.path.exists(reado.INSTANCE_PATH) and 1.5 < dt < 4.5,
+              f"r={r} exit={stuck.poll()} dt={dt:.1f}s")
+        check("…and says so in startup.log", f"pid {stuck.pid}" in logged and "never showed its window" in logged, logged[-200:])
+
+        other = subprocess.Popen(sleeper)  # alive, but not the process the file describes (PID reused)
+        time.sleep(0.3)
+        fake_instance(other.pid, time.time() - 3600)
+        r = reado.forward_to_running([ext])
+        check("a reused PID (other start time) is never ended — only passed over", r is False and other.poll() is None
+              and not os.path.exists(reado.INSTANCE_PATH), f"r={r} exit={other.poll()}")
+        other.kill()
+
+        slow = subprocess.Popen(sleeper)  # still starting: its window comes up during the wait
+        time.sleep(0.3)
+        fake_instance(slow.pid, time.time())
+        threading.Timer(0.8, lambda: fake_instance(slow.pid, time.time(), shown=True)).start()
+        with server._state_lock:
+            server._pending_open.clear()
+        raised.clear()
+        r = reado.forward_to_running([ext])
+        check("instance still starting: the second launch waits for its window, then hands over the files",
+              r is True and raised and slow.poll() is None, f"r={r} exit={slow.poll()}")
+        slow.kill()
+        os.remove(reado.INSTANCE_PATH)
+    finally:
+        reado.STARTUP_GRACE = old_grace
+        if old_env is None:
+            os.environ.pop("READO_STARTUP_TIMEOUT", None)
+        else:
+            os.environ["READO_STARTUP_TIMEOUT"] = old_env
     httpd2.shutdown()
     blocker.close()
+
+    # --- start-up watchdog: no window in time -> startup.log + exit; shown in time -> nothing ---
+    wd_log = os.path.join(CFG, "watchdog.log")
+    code = ("import sys, time; sys.path.insert(0, {repo!r}); import startguard; w = startguard.Watchdog(1, {log!r}).start(); "
+            "{shown}time.sleep(6)")
+    t = time.time()
+    p = subprocess.run([sys.executable, "-c", code.format(repo=REPO, log=wd_log, shown="")], timeout=30)
+    dt = time.time() - t
+    wl = open(wd_log, encoding="utf-8").read() if os.path.exists(wd_log) else ""
+    check("watchdog: no window within the limit -> exits (code 3) instead of hanging", p.returncode == 3 and dt < 5, f"code={p.returncode} {dt:.1f}s")
+    check("watchdog: startup.log has the reason, stage and every thread's stack",
+          "no window after 1 s" in wl and "stage: starting" in wl and "--- thread MainThread" in wl, wl[:300])
+    p = subprocess.run([sys.executable, "-c", code.format(repo=REPO, log=wd_log + "2", shown="w.shown(); ")], timeout=30)
+    check("watchdog: window shown in time -> it stands down", p.returncode == 0 and not os.path.exists(wd_log + "2"), str(p.returncode))
+    # no WMI: platform answers without it, and nothing in this process asked WMI
+    import platform
+    import nowmi  # reado imported it first
+    platform._uname_cache = None
+    n0 = len(nowmi.blocked)
+    check("no WMI: platform.system() / machine() / win32_ver() answer through the non-WMI fallback (WMI refused)",
+          platform.system() == "Windows" and platform.machine() and platform.win32_ver()[1] and len(nowmi.blocked) > n0,
+          f"{platform.win32_ver()} refused={nowmi.blocked[n0:]}")
 
     # --- Open with (HKCU) register / unregister ---
     import winreg

@@ -144,9 +144,22 @@ Changes since 0.1.0, not yet given a version number.
   (tsconfig, `node_modules`, `@/` paths), so its diagnostics are off. Settings → **Show language diagnostics** turns
   them back on.
 
+### Start-up
+
+- Fixed: ReadO could hang at start without ever showing its window, using CPU in the background (seen when it was
+  launched several times within a minute). Likely cause: a WMI query from Python's `platform` module (asked by
+  pywebview on every start) that never got an answer. ReadO now makes no WMI queries; `platform` uses its non-WMI
+  fallback.
+- If the window still has not appeared after 20 seconds, ReadO writes `%APPDATA%\ReadO\startup.log` (what it was
+  doing, every thread's stack) and exits instead of hanging invisibly.
+- A second launch no longer hands its files to an instance that never showed a window: it waits for that instance's
+  window (up to 25 seconds), then ends it (only that ReadO process — it has no unsaved edits) and starts on its own.
+
 ### Tests
 
 - The headless editor suite is in the repository: `python tests/verify_editor.py`.
+- `python tests/exe_startup.py dist\reado.exe`: the start-up watchdog and the second launch past a stuck instance,
+  on the built exe.
 
 ---
 

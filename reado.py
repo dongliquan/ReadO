@@ -2,6 +2,7 @@
 ReadO — desktop launcher.
 Starts the local HTTP server in a thread and opens a native WebView2 window.
 """
+import nowmi  # noqa: F401  first: no WMI queries in this process (see nowmi.py)
 import json
 import os
 import re
@@ -11,7 +12,18 @@ import threading
 import time
 import urllib.request
 
-import webview
+import startguard
+
+_T0 = time.time()
+# no window within READO_STARTUP_TIMEOUT (20 s): startup.log + exit, not an invisible hang.
+# Started only for the app itself (tests import this module).
+WATCHDOG = startguard.Watchdog(startguard.timeout_from_env(), lambda: os.path.join(writable_root(), "startup.log"),
+                               on_fire=lambda: remove_instance_file())
+if __name__ == "__main__":
+    WATCHDOG.start()
+    WATCHDOG.stage = "imports"
+
+import webview  # noqa: E402
 
 
 def app_root():
@@ -73,13 +85,79 @@ def cli_files():
     return [os.path.abspath(a) for a in sys.argv[1:] if not a.startswith("-")]
 
 
-def forward_to_running(paths):
-    """If a ReadO is already running (instance.json names its port and
-    secrets), hand it our files and return True. A stale file (crashed
-    instance, port reused by something else) fails fast and returns False."""
+STARTUP_GRACE = 5.0  # a second launch waits up to the first one's start-up limit + this for its window
+
+
+def _read_instance():
     try:
         with open(INSTANCE_PATH, "r", encoding="utf-8") as f:
             inst = json.load(f)
+        return inst if isinstance(inst, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _drop_instance_file(pid):
+    try:
+        if (_read_instance() or {}).get("pid") == pid:
+            os.remove(INSTANCE_PATH)
+    except OSError:
+        pass
+
+
+def _log(text):  # startup.log next to instance.json (%APPDATA%\ReadO for the exe)
+    startguard.append_log(os.path.join(os.path.dirname(INSTANCE_PATH), "startup.log"),
+                          f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {text}\n")
+
+
+def usable_instance():
+    """The running instance from instance.json that can take our files, or None.
+
+    Gone (crashed, killed): the file is dropped. Still starting (window not shown
+    yet): wait for it, up to its start-up limit + STARTUP_GRACE. Never showed its
+    window by then: it is stuck before the window (its watchdog should have ended
+    it) — that process is ended (it is checked to be that ReadO, and a window that
+    never showed has no unsaved edits) and we start on our own. Files from builds
+    without the "shown" field are used as before."""
+    inst = _read_instance()
+    if not inst or "pid" not in inst:
+        return None
+    pid = int(inst["pid"])
+    if pid == os.getpid():  # our own file (tests): never waited for or ended
+        return inst
+    if not startguard.pid_alive(pid):
+        _drop_instance_file(pid)
+        return None
+    if "shown" not in inst or inst.get("shown"):
+        return inst
+    limit = startguard.timeout_from_env() or startguard.STARTUP_TIMEOUT
+    deadline = float(inst.get("started") or time.time()) + limit + STARTUP_GRACE
+    while time.time() < deadline:
+        WATCHDOG.t0 = time.time()  # waiting for the other one is not our own start-up
+        time.sleep(0.25)
+        cur = _read_instance()
+        if not cur or cur.get("pid") != pid or not startguard.pid_alive(pid):
+            _drop_instance_file(pid)
+            return None
+        if cur.get("shown"):
+            return cur
+    if startguard.is_same_instance(pid, inst.get("exe"), inst.get("started")):
+        _log(f"pid {pid} (started {time.strftime('%H:%M:%S', time.localtime(float(inst.get('started') or 0)))}) "
+             f"never showed its window — ended by a new launch (pid {os.getpid()})")
+        startguard.terminate(pid)
+    _drop_instance_file(pid)
+    return None
+
+
+def forward_to_running(paths):
+    """If a ReadO is already running (instance.json names its port and
+    secrets), hand it our files and return True. A stale file (crashed
+    instance, port reused by something else) fails fast and returns False;
+    an instance that never showed its window is passed over (usable_instance)."""
+    inst = usable_instance()
+    if not inst:
+        return False
+    try:
         if os.name == "nt":  # let it bring its window to the front
             import ctypes
             ctypes.windll.user32.AllowSetForegroundWindow(int(inst["pid"]))
@@ -94,13 +172,14 @@ def forward_to_running(paths):
         return False
 
 
-def write_instance_file():
+def write_instance_file(shown=False):
     # per-user location (%APPDATA%\ReadO for the exe): lets a second launch
-    # reach /api/open-request; the page itself never sees the IPC secret
+    # reach /api/open-request; the page itself never sees the IPC secret.
+    # "shown" turns true once the window is up (a second launch waits for that).
     try:
         with open(INSTANCE_PATH, "w", encoding="utf-8") as f:
             json.dump({"pid": os.getpid(), "port": PORT, "token": server.CSRF_TOKEN,
-                       "ipc": server.IPC_SECRET}, f)
+                       "ipc": server.IPC_SECRET, "started": _T0, "exe": sys.executable, "shown": bool(shown)}, f)
     except OSError:
         pass
 
@@ -171,7 +250,8 @@ class Api:
     # --- the page's title bar (see NativeFrame) ---
     def win_state(self):
         return {"maximized": NativeFrame.maximized(), "frame": NativeFrame.active(),
-                "webview_moves": NativeFrame.moves, "webview_refreshes": NativeFrame.refreshes}
+                "webview_moves": NativeFrame.moves, "webview_refreshes": NativeFrame.refreshes,
+                "wmi_refused": list(nowmi.blocked), "startup": WATCHDOG.stage}
 
     def win_minimize(self):
         NativeFrame.syscommand(0xF020)  # SC_MINIMIZE (keeps the animation)
@@ -535,6 +615,16 @@ def unregister_assoc(notify=True):
     return assoc_status()
 
 
+def on_shown(win):
+    """The window is up: the watchdog stands down, a second launch may hand us files."""
+    if os.environ.get("READO_TEST_HIDDEN") == "1":
+        return  # tests: act like a window that never came up (pywebview fires "shown" for hidden windows too)
+    WATCHDOG.shown()
+    WATCHDOG.stage = "shown"
+    write_instance_file(shown=True)
+    NativeFrame.install(win)
+
+
 def on_closing():
     """Ask before quitting with unsaved tabs. Runs on the GUI thread, where a
     plain Win32 message box is safe (evaluate_js here would deadlock)."""
@@ -672,13 +762,18 @@ def theme_background():
 def main():
     files = cli_files()
     # an instance is already running: give it our files instead of a 2nd window
+    WATCHDOG.stage = "second launch check"
     if forward_to_running(files):
         return
+    # waiting for a stuck first instance is not our own start-up
+    WATCHDOG.t0 = time.time()
+    WATCHDOG.stage = "server"
     httpd = bind_server()
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     write_instance_file()
     server.request_open(files)
     wait_ready()
+    WATCHDOG.stage = "window"
     win = webview.create_window(
         title="ReadO",
         url=f"http://{HOST}:{PORT}/",
@@ -694,15 +789,18 @@ def main():
         shadow=True,
         # not white: maximizing exposes this color until WebView2 repaints (a white screen in the dark theme)
         background_color=theme_background(),
+        # tests only: a window that never shows (the start-up watchdog / second-launch case)
+        hidden=os.environ.get("READO_TEST_HIDDEN") == "1",
     )
     server.on_open_request = lambda: raise_window(win)
     gitview.DIFFWIN.backend = DiffWindowBackend(win)
-    win.events.shown += lambda: NativeFrame.install(win)
+    win.events.shown += lambda: on_shown(win)
     win.events.closing += on_closing
     # the diff windows go with the main window (pywebview would keep running for them)
     win.events.closed += gitview.DIFFWIN.close_all
     win.events.loaded += lambda: on_loaded(win)
     try:
+        WATCHDOG.stage = "webview.start (window not shown yet)"
         # private_mode stays at pywebview's default (True): WebView2 storage is
         # wiped on exit, so UI state is kept by the server (state.json) instead
         webview.start()

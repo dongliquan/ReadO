@@ -337,9 +337,12 @@ checks and a per-process token on every write request.
   `git.js` / `git.css` — the Git tool window, served next to `source.html`
 - `tests/` — `test_git.py` (headless API tests on fixture repositories, `git_fixture.py`), `ui_git_smoke.py` (browser);
   `verify_editor.py` — the headless editor suite: `python tests/verify_editor.py` (needs `pip install playwright` +
-  `playwright install chromium`; fixtures in `%TEMP%\reado-headless`, or set `READO_TEST_WORK`)
+  `playwright install chromium`; fixtures in `%TEMP%\reado-headless`, or set `READO_TEST_WORK`);
+  `exe_startup.py` — start-up guards of a built exe: `python tests/exe_startup.py dist\reado.exe`
 - `reado.py` — pywebview launcher: starts the server, opens the native window, open dialog, drag and drop,
-  command-line files, single instance, quit prompt for unsaved changes, "Open with" registration
+  command-line files, single instance, quit prompt for unsaved changes, "Open with" registration;
+  `startguard.py` — start-up watchdog (no window in 20 s: `startup.log` + exit) and the checks a second launch makes
+  on a running instance; `nowmi.py` — keeps WMI queries out of the process (also a PyInstaller runtime hook)
 - `fetch-vendor.py` — downloads the bundled 3rd-party assets into `vendor/` (stdlib only, versions pinned)
 - `build.bat` — PyInstaller one-file build
 - `docs/` — feature list and gap analysis (`FEATURES.md`), performance report (`PERF.md`), design review (`DESIGN-REVIEW.md`)

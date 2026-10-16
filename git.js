@@ -1689,7 +1689,7 @@ const Console_ = {
   built: false, entries: [], since: 0, timer: null,
   build() {
     const p = W.pages.console;
-    p.innerHTML = `<div class="gw-col" style="flex:1"><div class="gw-bar"><button data-a="clear">clear</button><span class="sum">read-only git commands ReadO ran (newest last)</span></div><div class="gw-scroll"></div></div>`;
+    p.innerHTML = `<div class="gw-col" style="flex:1"><div class="gw-bar"><button data-a="clear">clear</button><span class="sum">git commands ReadO ran (newest last) — all read-only except the toolbar Pull</span></div><div class="gw-scroll"></div></div>`;
     this.box = p.querySelector('.gw-scroll');
     p.querySelector('.gw-bar').addEventListener('click', e => { if (e.target.dataset.a === 'clear') { this.entries = []; this.render(); } });
     this.built = true;
@@ -1709,7 +1709,8 @@ const Console_ = {
   render() {
     const atEnd = this.box.scrollTop + this.box.clientHeight >= this.box.scrollHeight - 30;
     this.box.innerHTML = this.entries.map(e => `<div class="gc-row${e.rc ? ' err' : ''}"><span class="t">${esc(new Date(e.t * 1000).toLocaleTimeString())}</span>` +
-      `<span class="ms">${e.ms} ms</span><span class="c" title="${esc(e.cwd)}">${esc(e.cmd)}</span>${e.err ? `<span class="e">${esc(e.err)}</span>` : ''}</div>`).join('') ||
+      `<span class="ms">${e.ms} ms</span><span class="c" title="${esc(e.cwd)}">${esc(e.cmd)}</span>${e.err && !e.out ? `<span class="e">${esc(e.err)}</span>` : ''}` +
+      `${e.out ? `<pre class="o">${esc(e.out)}</pre>` : ''}</div>`).join('') ||
       '<div class="gw-empty">no git commands yet</div>';
     if (atEnd) this.box.scrollTop = this.box.scrollHeight;
   },
@@ -2163,21 +2164,262 @@ function registerCommands() {
   }
   applyKeymap(STATE.keymap);
   renderMenuBar();
-  // toolbar group: Git tool window + commit via AgentO
+  // toolbar group: branch of the active file's repository, Pull (ReadO), Commit / Push (requests to AgentO)
   const groups = document.getElementById('tbGroups');
   if (groups && !groups.querySelector('[data-group="git"]')) {
     const prefs = groups.querySelector('[data-group="prefs"]');
-    const g = el('div', 'tbg');
+    const g = el('div', 'tbg gtb');
     g.dataset.group = 'git';
-    g.innerHTML = `<button class="tbtn" data-cmd="git.toolwin"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.6"/><circle cx="4.5" cy="12.5" r="1.6"/><circle cx="11.5" cy="6" r="1.6"/><path d="M4.5 5.1v5.8M11.5 7.6c0 2.6-7 1.6-7 3.3"/></svg><span class="lbl">Git</span></button>` +
-      `<button class="tbtn" data-cmd="git.agentCommit"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg></button>`;
+    g.innerHTML = `<button class="tbtn gtb-branch" id="gtbBranch"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3.5" r="1.6"/><circle cx="4.5" cy="12.5" r="1.6"/><circle cx="11.5" cy="6" r="1.6"/><path d="M4.5 5.1v5.8M11.5 7.6c0 2.6-7 1.6-7 3.3"/></svg><span class="nm">Git</span><span class="ab"></span></button>` +
+      `<button class="tbtn gtb-act" id="gtbPull" data-a="pull"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v9M4 7.5l4 4 4-4M3 14h10"/></svg><span class="spin"></span></button>` +
+      `<button class="tbtn gtb-act agento" id="gtbCommit" data-a="commit"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg><span class="am">A</span></button>` +
+      `<button class="tbtn gtb-act agento" id="gtbPush" data-a="push"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5v-9M4 8.5l4-4 4 4M3 2h10"/></svg><span class="am">A</span></button>`;
     const anchor = prefs && prefs.previousElementSibling && prefs.previousElementSibling.classList.contains('tbsep') ? prefs.previousElementSibling : prefs;
     groups.insertBefore(g, anchor);
     groups.insertBefore(el('span', 'tbsep'), g);
-    g.querySelectorAll('[data-cmd]').forEach(b => b.addEventListener('click', () => runCommand(b.dataset.cmd)));
+    g.querySelector('#gtbBranch').addEventListener('click', () => tbOpenLog());
+    g.querySelector('#gtbBranch').addEventListener('contextmenu', e => { e.preventDefault(); branchPopup(e.currentTarget); });
+    g.querySelector('#gtbPull').addEventListener('click', () => tbPull());
+    g.querySelector('#gtbCommit').addEventListener('click', () => tbRequest('commit'));
+    g.querySelector('#gtbPush').addEventListener('click', () => tbRequest('push'));
+    renderTB();
   }
   renderToolbarTitles();
   try { fitToolbar(); } catch (e) {}
+}
+
+// ---------- toolbar Git group ----------
+// Target: the repository of the active file (else the Git tool window's). Pull runs here
+// (fetch + merge --ff-only, gitview.pull); Commit / Push only ask AgentO (agento:// deep link).
+const TB = { key: null, repo: null, st: null, fp: '', t: 0, busy: false, loading: false };
+// Commit / Push through agento://dispatch (GIT-DESIGN §14.3, draft): off until AgentO handles it;
+// meanwhile the buttons copy the instruction (the existing AgentO hand-off)
+let USE_DEEPLINK = false;
+const _repoByDir = new Map();  // ReadO folder key -> {t, repo|null}
+const dirKey = k => { const i = k.lastIndexOf('/'); return i < 0 ? '' : k.slice(0, i); };
+function repoForKeyCached(key) {
+  const hit = _repoByDir.get(dirKey(key));
+  return hit && Date.now() - hit.t < 60000 ? hit.repo : undefined;
+}
+async function repoForKey(key) {
+  const c = repoForKeyCached(key);
+  if (c !== undefined) return c;
+  const inf = await api('info', { path: key });
+  const repo = inf.repo || null;
+  _repoByDir.set(dirKey(key), { t: Date.now(), repo });
+  return repo;
+}
+async function tbRefresh(force) {
+  if (TB.loading) return;
+  TB.loading = true;
+  try {
+    if (!G.info) G.info = await api('info');
+    const doc = currentDoc();
+    const key = doc ? doc.key : '';
+    let repo = null;
+    if (G.info.available) repo = key ? await repoForKey(key) : G.repo;
+    const moved = (repo && repo.root) !== (TB.repo && TB.repo.root);
+    TB.repo = repo; TB.key = key;
+    if (!repo) { TB.st = null; TB.fp = ''; return; }
+    const fp = await api('fp', { repo: repo.root });
+    if (force || moved || fp.fp !== TB.fp || Date.now() - TB.t > 8000) {
+      const st = await api('status', { repo: repo.root, fresh: force ? 1 : '' });
+      if (TB.repo !== repo) return;
+      TB.st = st.error ? null : st; TB.fp = fp.fp || ''; TB.t = Date.now();
+    }
+  } finally {
+    TB.loading = false;
+    renderTB();
+  }
+}
+const PULL_WHY = {
+  detached: 'HEAD is detached — no branch to pull', no_upstream: 'the branch has no upstream (tracking) branch',
+  repo_busy: 'a merge / rebase is in progress', non_ff: 'the branch has diverged from its upstream — not a fast-forward',
+  local_changes: 'local changes would be overwritten — commit or stash them first (AgentO)',
+  auth: 'the remote needs credentials ReadO cannot ask for — sign in once with git (terminal / AgentO), then pull again',
+  busy: 'a pull is already running', timeout: 'git took longer than 60 s and was stopped',
+  nothing_to_commit: 'nothing to commit', nothing_to_push: 'nothing to push (↑0)',
+};
+const whyText = d => PULL_WHY[d.error] || errText(d);
+function tbState() {
+  const st = TB.st, b = st && st.branch, files = st ? st.files || [] : [];
+  return { st, b, files, commitable: files.filter(f => f.kind !== 'conflicted'), avail: !!(G.info && G.info.available) };
+}
+function renderTB() {
+  const btn = document.getElementById('gtbBranch');
+  if (!btn) return;
+  const { st, b, commitable, avail } = tbState();
+  const repo = TB.repo;
+  const name = !avail || !repo ? 'Git' : b ? (b.head || 'detached ' + short(b.oid)) : (repo.branch || '…');
+  btn.querySelector('.nm').textContent = name;
+  const ab = b && b.upstream && (b.ahead || b.behind) ? (b.ahead ? `↑${b.ahead}` : '') + (b.behind ? ` ↓${b.behind}` : '') : '';
+  btn.querySelector('.ab').textContent = ab.trim();
+  btn.classList.toggle('on', !!(avail && repo));
+  const tw = CMD.get('git.toolwin');
+  btn.title = !avail ? 'Git — ' + errText({ error: (G.info && G.info.reason) || 'no_git' })
+    : !repo ? 'Git — the active file is not in a git repository\nClick: Git tool window' + (tw && tw.keys ? ` (${tw.keys})` : '')
+    : `${repo.name}: branch ${name}` + (b && b.upstream ? ` → ${b.upstream}  ↑${b.ahead} ↓${b.behind}` : b && b.head ? ' (no upstream)' : '') +
+      (repo.state ? ` · ${repo.state.toUpperCase()}` : '') + `\n${repo.root}\nClick: Log in the Git tool window` + (tw && tw.keys ? ` (${tw.keys})` : '') + ' · right-click: branches';
+  const set = (id, off, title) => { const x = document.getElementById(id); x.disabled = !!off; x.title = title; };
+  const pullWhy = !avail ? 'git not found' : !repo ? 'not in a git repository' : !st ? 'loading…' : !b.head ? PULL_WHY.detached
+    : !b.upstream ? PULL_WHY.no_upstream : (st.repo && st.repo.state) ? PULL_WHY.repo_busy : '';
+  set('gtbPull', TB.busy || pullWhy, TB.busy ? 'Pull — running…' : 'Pull (git pull --ff-only: fast-forward only)' +
+    (b && b.behind ? ` — ↓${b.behind} known` : '') + (pullWhy ? '\n— ' + pullWhy : ''));
+  document.getElementById('gtbPull').classList.toggle('busy', TB.busy);
+  const commitWhy = !repo || !st ? 'not in a git repository' : !commitable.length ? 'no local changes' : '';
+  set('gtbCommit', commitWhy, `Commit… — AgentO에 요청(head coach에게 전달)` + (commitable.length ? ` · ${commitable.length} changed file(s)` : '') + (commitWhy ? '\n— ' + commitWhy : ''));
+  const pushWhy = !repo || !st ? 'not in a git repository' : !b.head ? PULL_WHY.detached : b.upstream && !b.ahead ? 'nothing to push (↑0)' : '';
+  set('gtbPush', pushWhy, `Push — AgentO에 요청(head coach에게 전달, force 없음)` + (b && b.ahead ? ` · ↑${b.ahead}` : '') + (pushWhy ? '\n— ' + pushWhy : ''));
+}
+// breadcrumb: the repository folder of the file stands out (chip); the path after it stays as it was
+const _renderCrumbs = renderCrumbs;
+renderCrumbs = function (path) {
+  const plain = _renderCrumbs(path);
+  if (!path || isAbsKey(path) || !G.info || !G.info.available) return plain;
+  const repo = repoForKeyCached(path);
+  if (repo === undefined) {
+    repoForKey(path).then(r => { const c = document.getElementById('crumbs'); if (r && c && currentPath === path) c.innerHTML = renderCrumbs(path); });
+    return plain;
+  }
+  const base = norm(_settings.base_dir || ''), root = repo ? norm(repo.root) : '';
+  if (!repo || !base || !root.toLowerCase().startsWith(base.toLowerCase() + '/')) return plain;  // the folder is the repository (or inside it)
+  const pre = root.slice(base.length + 1);
+  if (!path.toLowerCase().startsWith(pre.toLowerCase() + '/')) return plain;
+  const segs = pre.split('/'), name = segs.pop(), sep = '<span class="sep">/</span>';
+  return (segs.length ? segs.map(esc).join(sep) + sep : '') +
+    `<span class="crumb-repo" title="git repository: ${esc(repo.root.replace(/\//g, '\\'))}${repo.branch ? '\nbranch ' + esc(repo.branch) : ''}">${esc(name)}</span>` +
+    sep + _renderCrumbs(path.slice(pre.length + 1));
+};
+async function tbOpenLog() {
+  if (TB.repo && (!G.repo || G.repo.root !== TB.repo.root)) await selectRepo(TB.repo.root, true);
+  if (!TB.repo && !G.repo) return toggleWindow(true);
+  openTab('log');
+}
+// repo-relative paths of files with unsaved editor edits in this repository
+function unsavedIn(repo) {
+  const root = norm(repo.root).toLowerCase() + '/';
+  const out = [];
+  for (const d of docs.values()) {
+    if (!d.dirty) continue;
+    const full = norm(fullPathOf(d.key));
+    if (full.toLowerCase().startsWith(root)) out.push(full.slice(root.length));
+  }
+  return out;
+}
+function tbBusy(on) { TB.busy = on; renderTB(); }
+async function tbAfterChange(repo) {
+  await tbRefresh(true);
+  if (G.repo && G.repo.root === repo.root) await refreshAll(false);
+  else refreshDecor();
+  updateBranch();
+}
+async function tbPull() {
+  const repo = TB.repo;
+  if (TB.busy || !repo) return;
+  tbBusy(true);
+  const inf = await api('pullinfo', { repo: repo.root });
+  tbBusy(false);
+  if (inf.error) return showToast('pull: ' + errText(inf), true);
+  if (inf.reason) return showToast('pull: ' + whyText({ error: inf.reason }), true);
+  const unsaved = unsavedIn(repo);
+  const msg = `Repository:  ${repo.root.replace(/\//g, '\\')}\nBranch:        ${inf.branch}  ←  ${inf.upstream}` +
+    (inf.behind ? `  (↓${inf.behind} known before fetch)` : '') +
+    `\nRemote:        ${inf.remote}${inf.url ? '  ' + inf.url : ''}\n\n` +
+    'Runs git fetch, then git merge --ff-only (= git pull --ff-only). If the branch cannot fast-forward, or local changes are in the way, ReadO stops and changes nothing — no merge commit, rebase or stash.' +
+    (inf.dirty ? `\n\n${inf.dirty} local change(s) are kept as they are.` : '') +
+    (unsaved.length ? `\n\n⚠ ${unsaved.length} file(s) here have unsaved edits — if the pull changes them you will be asked again.` : '');
+  const r = await askChoice('Pull ' + inf.branch, msg, [{ label: 'pull', value: 'ok', primary: true }, { label: 'cancel', value: 'cancel' }]);
+  if (r !== 'ok' && !(r && r.value === 'ok')) return;
+  await runPull(repo, unsaved, false);
+}
+async function runPull(repo, unsaved, allow) {
+  tbBusy(true);
+  let r;
+  try { r = await postJson('/api/git/pull', { repo: repo.root, unsaved, allow_unsaved: allow }); }
+  finally { tbBusy(false); }
+  const d = r.data || {};
+  if (d.need_confirm === 'unsaved') {
+    const a = await askChoice('Pull changes files you are editing',
+      `The pull changes ${d.files.length} file(s) that have unsaved edits in ReadO:\n` + d.files.slice(0, 12).map(f => '  ' + f).join('\n') +
+      (d.files.length > 12 ? `\n  … ${d.files.length - 12} more` : '') +
+      '\n\nPull anyway? The editor keeps your unsaved text; saving it later overwrites the pulled version.',
+      [{ label: 'pull anyway', value: 'ok', primary: true }, { label: 'cancel', value: 'cancel' }]);
+    if (a === 'ok' || (a && a.value === 'ok')) return runPull(repo, unsaved, true);
+    return;
+  }
+  if (d.ok) showToast(d.updated ? `pulled ${d.commits} commit${d.commits === 1 ? '' : 's'} into ${(d.info || {}).branch || 'the branch'} · ${d.files} file${d.files === 1 ? '' : 's'} changed` : 'pull: already up to date');
+  else {
+    showToast('pull stopped: ' + whyText(d), true);
+    if (G.repo && G.repo.root !== repo.root) await selectRepo(repo.root, true);
+    openTab('console');
+  }
+  await tbAfterChange(repo);
+}
+// Commit / Push: ReadO never runs these — a request goes to AgentO (agento://dispatch, docs/GIT-DESIGN.md §14)
+function tbCommitDialog(repo, files, unsaved) {
+  return new Promise(resolve => {
+    const bg = el('div', 'gx-bg');
+    const b = (TB.st && TB.st.branch) || {};
+    bg.innerHTML = `<div class="gx-dlg gtb-dlg"><h3>Commit — AgentO에 요청</h3>
+      <div class="sub">ReadO does not commit. ${USE_DEEPLINK ? "This sends a request to AgentO, which passes it to the project's head coach." : "The instruction is copied for AgentO (paste it into the session for this repository)."}</div>
+      <div class="kv"><span>Repository</span><b>${esc(repo.root.replace(/\//g, '\\'))}</b><span>Branch</span><b>${esc(b.head || '')}</b>
+        <span>Files</span><b>${files.length} changed file${files.length === 1 ? '' : 's'}</b></div>
+      <div class="files">${files.slice(0, 200).map(f => `<div>${esc(f)}</div>`).join('')}${files.length > 200 ? `<div>… ${files.length - 200} more</div>` : ''}</div>
+      ${unsaved.length ? `<div class="warn">⚠ ${unsaved.length} file(s) have unsaved edits in ReadO — save them first so AgentO sees them.</div>` : ''}
+      <input class="msg" placeholder="commit message draft (optional, ≤ 200 characters)" maxlength="200" spellcheck="false">
+      <div class="row"><span class="note"></span><button data-a="cancel">cancel</button><button data-a="go" class="primary">${USE_DEEPLINK ? 'send to AgentO' : 'copy for AgentO'}</button></div></div>`;
+    const close = v => { bg.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const onKey = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(null); }
+      else if (e.key === 'Enter' && e.target.classList.contains('msg')) { e.preventDefault(); close({ msg: e.target.value }); } };
+    document.addEventListener('keydown', onKey, true);
+    bg.addEventListener('mousedown', e => { if (e.target === bg) close(null); });
+    bg.querySelector('.row').addEventListener('click', e => {
+      const a = e.target.dataset && e.target.dataset.a;
+      if (a === 'cancel') close(null);
+      if (a === 'go') close({ msg: bg.querySelector('.msg').value });
+    });
+    document.body.appendChild(bg);
+    bg.querySelector('.msg').focus();
+  });
+}
+async function tbRequest(kind) {
+  const repo = TB.repo;
+  if (!repo || !TB.st) return;
+  await tbRefresh(true);
+  const { b, commitable } = tbState();
+  if (!b) return;
+  let msg = '', files = [];
+  if (kind === 'commit') {
+    if (!commitable.length) return showToast('nothing to commit', true);
+    const ticked = Changes.built && Changes.tree && G.repo && G.repo.root === repo.root ? Changes.tree.checkedFiles().map(f => f.path) : [];
+    files = ticked.length ? ticked : commitable.map(f => f.path);
+    const r = await tbCommitDialog(repo, files, unsavedIn(repo));
+    if (!r) return;
+    msg = r.msg.trim();
+  } else {
+    if (b.upstream && !b.ahead) return showToast('nothing to push (↑0)', true);
+    const a = await askChoice('Push — AgentO에 요청',
+      `Repository:  ${repo.root.replace(/\//g, '\\')}\nBranch:        ${b.head}${b.upstream ? '  →  ' + b.upstream + `  (↑${b.ahead})` : '  (no upstream yet)'}\n\n` +
+      'ReadO does not push. ' + (USE_DEEPLINK ? 'AgentO passes the request to the head coach' : 'The instruction is copied for AgentO') + '; force push is never requested.',
+      [{ label: USE_DEEPLINK ? 'send to AgentO' : 'copy for AgentO', value: 'ok', primary: true }, { label: 'cancel', value: 'cancel' }]);
+    if (a !== 'ok' && !(a && a.value === 'ok')) return;
+  }
+  const instruction = d => `[ReadO → AgentO] ${repoLine(repo)}\n\n` +
+    AGENT[kind](kind === 'commit' ? { files: (d && d.files) || files, message: msg } : { branch: (d && d.branch) || b.head, upstream: b.upstream });
+  if (!USE_DEEPLINK) {  // for now: the instruction on the clipboard, AgentO brought up
+    await copyQuiet(instruction());
+    const o = await postJson('/api/git/agento', { path: S().agentoPath || '' });
+    showToast(`AgentO에 보낼 ${kind} 지시문을 복사했습니다` + (o.ok && o.data.launched ? ' — AgentO에 붙여 넣어 주세요' : ' — AgentO를 열고 붙여 넣어 주세요'));
+    return tbAfterChange(repo);
+  }
+  const r = await postJson('/api/git/agento-request', { repo: repo.root, kind, msg, files });
+  const d = r.data || {};
+  if (d.sent) showToast(`AgentO에 ${kind} 요청을 보냈습니다`);
+  else if (d.fallback) {
+    await copyQuiet(instruction(d));
+    showToast('AgentO가 아직 agento:// 요청을 지원하지 않습니다. 지시문을 복사했습니다', true);
+  } else return showToast(kind + ': ' + whyText(d), true);
+  await tbAfterChange(repo);
 }
 
 // ---------- init ----------
@@ -2196,6 +2438,7 @@ function init() {
   window.onFolderOpened = function () {
     if (prevOpened) prevOpened();
     G.repos = []; G.repo = null; G.status = null; G.refs = null; G.fp = ''; G.decor = { files: {}, dirs: {} };
+    _repoByDir.clear(); TB.key = null; TB.repo = null; TB.st = null;
     Log.reset(); Changes.reset(); Stash.reset(); closeHistory(true);
     S().repo = '';
     (async () => { await loadRepos(); if (STATE.git.open) start(); refreshDecor(); })();
@@ -2211,10 +2454,18 @@ function init() {
   })();
   setInterval(poll, 2500);
   setInterval(hookEditors, 1000);
+  // toolbar branch: follows the active file at once, re-checks the repository now and then
+  setInterval(() => {
+    if (document.hidden) return;
+    const d = currentDoc(), k = d ? d.key : '';
+    if (k !== TB.key || Date.now() - TB.t > 4000) tbRefresh();
+  }, 1000);
+  window.addEventListener('focus', () => tbRefresh(true));
   setInterval(() => { syncBlameWidth(); if (S().lineBlame) updateLineBlame(); }, 1500);
   // open docs: re-mark conflicts as they load / change
   setInterval(() => { G.conflicts.forEach(k => { const d = docs.get(k); if (d && !_confDecos.has(k)) markConflicts(d); }); }, 2000);
 }
-window.GitUI = { G, DW, get DM() { return dmFront(); }, openDiffWin, openPanelWin, closeDiffModal, closeDiffWin, diffModalOpen, toggleWindow, setTab, openHistory, toggleBlame, clearBlame, blameAt, openBlameCommit, toggleLineBlame, updateLineBlame, agentDialog, refreshAll, laneStep, get Log() { return Log; }, get History() { return History; }, Changes, Stash };
+window.GitUI = { G, DW, get DM() { return dmFront(); }, openDiffWin, openPanelWin, closeDiffModal, closeDiffWin, diffModalOpen, toggleWindow, setTab, openHistory, toggleBlame, clearBlame, blameAt, openBlameCommit, toggleLineBlame, updateLineBlame, agentDialog, refreshAll, laneStep, get Log() { return Log; }, get History() { return History; }, Changes, Stash,
+  get useDeeplink() { return USE_DEEPLINK; }, set useDeeplink(v) { USE_DEEPLINK = !!v; } };
 init();
 })();

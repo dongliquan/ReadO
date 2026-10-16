@@ -2,8 +2,9 @@
 ReadO — read-only git views (Local Changes, Log, History, Blame, branches).
 
 ReadO only *looks* at repositories; every command that would change one
-(commit, checkout, stash, fetch …) is handed to AgentO as an instruction
-instead (see docs/GIT-DESIGN.md). This module therefore:
+(commit, checkout, stash …) is handed to AgentO as an instruction instead
+(see docs/GIT-DESIGN.md). The one exception is the toolbar Pull: fetch +
+fast-forward-only merge, run by pull() alone. This module therefore:
 
   * runs the installed git CLI (no bundled git); missing or older than
     MIN_VERSION -> the Git UI shows why and stays off;
@@ -32,6 +33,9 @@ Endpoints (GET, read guard; POST via server.write_api):
   GET  /api/git/console                 -> the git commands ReadO ran (Console tab)
   POST /api/git/agento                  -> start / focus AgentO (guarded)
   POST /api/git/terminal                -> open a terminal in the repository (guarded)
+  GET  /api/git/pullinfo?repo=          -> branch / upstream / remote for the Pull confirmation
+  POST /api/git/pull                    -> fetch + merge --ff-only (guarded; the one write)
+  POST /api/git/agento-request          -> agento://dispatch deep link for Commit / Push (guarded)
 """
 import collections
 import os
@@ -55,7 +59,11 @@ BLAME_MAX = 8_000_000
 
 # Sub-commands ReadO may run. Anything else is refused in run().
 READ_ONLY = frozenset("""version rev-parse status log show cat-file diff-tree blame for-each-ref
-config symbolic-ref ls-files rev-list""".split())
+config symbolic-ref ls-files rev-list merge-base""".split())
+# The one exception (toolbar Pull, see pull()): fetch + a fast-forward-only merge. Only pull()
+# runs these, with fixed options; run() still refuses them.
+PULL_CMDS = frozenset(("fetch", "merge"))
+PULL_TIMEOUT = 60
 # `config` only with these (reading) options
 _CONFIG_READ = frozenset(("--get", "--get-regexp", "--get-all", "--list", "-l", "--show-scope",
                           "--show-origin", "--includes", "--local", "--global", "--system", "--worktree", "-z"))
@@ -184,18 +192,23 @@ CONSOLE = collections.deque(maxlen=300)
 _console_seq = [0]
 
 
-def _log_console(args, cwd, ms, rc, kind, err=""):
+def _log_console(args, cwd, ms, rc, kind, err="", out=""):
     with _run_lock:
         _console_seq[0] += 1
         CONSOLE.append({"id": _console_seq[0], "t": time.time(), "cmd": "git " + " ".join(_q(a) for a in args)[:400],
-                        "cwd": cwd, "ms": int(ms), "rc": rc, "kind": kind or "", "err": (err or "")[:300]})
+                        "cwd": cwd, "ms": int(ms), "rc": rc, "kind": kind or "", "err": (err or "")[:300],
+                        "out": (out or "")[:4000]})
 
 
 def _q(a):
     return a if re.fullmatch(r"[\w@%+=:,./^~\-]+", a) else '"' + a.replace('"', '\\"') + '"'
 
 
-def _check_allowed(args):
+def _check_allowed(args, write=False):
+    if write:
+        if not args or args[0] not in PULL_CMDS:
+            raise GitError("bad_arg", "not a pull command: " + (args[0] if args else ""))
+        return
     if not args or args[0] not in READ_ONLY:
         raise GitError("bad_arg", "not a read-only git command: " + (args[0] if args else ""))
     if args[0] == "config" and not any(a in ("--get", "--get-regexp", "--get-all", "--list", "-l") for a in args):
@@ -204,23 +217,23 @@ def _check_allowed(args):
         raise GitError("bad_arg", "config: read options only")
 
 
-def _popen(args, cwd, cfg):
+def _popen(args, cwd, cfg, write=False):
     exe, _, reason = git_exe()
     if reason:
         raise GitError(reason)
-    _check_allowed(args)
+    _check_allowed(args, write)
     return subprocess.Popen([exe] + cfg + args, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, env=_env(), creationflags=S.CREATE_NO_WINDOW)
 
 
-def _raw(args, cwd, cfg, timeout=TIMEOUT, kind=None):
+def _raw(args, cwd, cfg, timeout=TIMEOUT, kind=None, write=False):
     """(returncode, stdout bytes, stderr str). Raises GitError on timeout /
-    cancellation / missing git."""
+    cancellation / missing git. write: a pull step (output kept in the Console)."""
     t0 = time.time()
     if not _GATE.acquire(timeout=timeout):
         raise GitError("busy")
     try:
-        proc = _popen(args, cwd, cfg)
+        proc = _popen(args, cwd, cfg, write)
         if kind:
             with _run_lock:
                 old = _running.get(kind)
@@ -245,7 +258,10 @@ def _raw(args, cwd, cfg, timeout=TIMEOUT, kind=None):
         if getattr(proc, "readO_cancelled", False):
             _log_console(args, cwd, (time.time() - t0) * 1000, rc, kind, "cancelled")
             raise GitError("cancelled")
-        if args[0] != "config":
+        if write:
+            _log_console(args, cwd, (time.time() - t0) * 1000, rc, kind, errs if rc else "",
+                         "\n".join(x for x in (out.decode("utf-8", "replace").strip(), errs) if x))
+        elif args[0] != "config":
             _log_console(args, cwd, (time.time() - t0) * 1000, rc, kind, errs if rc else "")
         return rc, out, errs
     except OSError as e:
@@ -1277,6 +1293,259 @@ def api_terminal(data):
     return {"ok": True, "terminal": "wt" if wt else "cmd"}
 
 
+# ----- Pull (the one write ReadO runs itself) -----
+# `git pull --ff-only`, run as its two halves so the page can be warned before files it has
+# unsaved edits for change: fetch the upstream's remote, then `merge --ff-only <fetched sha>`.
+# Never a merge commit, rebase or autostash; anything but a fast-forward stops with nothing changed.
+
+_pull_locks = collections.defaultdict(threading.Lock)
+_REMOTE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.\-/]{0,199}")
+
+
+def _wrun(args, top):
+    """A pull step: (rc, stdout + stderr text). Console keeps the output."""
+    rc, out, err = _raw(args, top, BASE_CONFIG + _repo_overrides(top), PULL_TIMEOUT, write=True)
+    return rc, "\n".join(x for x in (out.decode("utf-8", "replace").strip(), err) if x)
+
+
+def _cfg(top, key):
+    out = run(["config", "--get", key], top, timeout=5, ok=(0, 1)).decode("utf-8", "replace").strip()
+    return out
+
+
+def _safe_url(u):
+    """A remote URL for display, without a user:password@ part."""
+    return re.sub(r"^([a-z][a-z0-9+.\-]*://)[^/@]*@", r"\1", u or "", flags=re.I)
+
+
+def pull_info(top):
+    """What the Pull button / confirmation shows: branch, upstream, remote, why it cannot run."""
+    st = status(top, fresh=True)
+    b = st["branch"]
+    out = {"repo": _summary(top), "branch": b.get("head", ""), "upstream": b.get("upstream", ""),
+           "ahead": b.get("ahead", 0), "behind": b.get("behind", 0), "dirty": len(st["files"]),
+           "remote": "", "url": "", "state": repo_state(top), "reason": ""}
+    if not out["branch"]:
+        out["reason"] = "detached"
+    elif not out["upstream"]:
+        out["reason"] = "no_upstream"
+    elif out["state"]:
+        out["reason"] = "repo_busy"
+    if out["branch"]:
+        out["remote"] = _cfg(top, "branch." + out["branch"] + ".remote")
+        if out["remote"] and out["remote"] != "." and _REMOTE.fullmatch(out["remote"]):
+            out["url"] = _safe_url(_cfg(top, "remote." + out["remote"] + ".url"))
+    if not out["reason"] and out["remote"] != "." and not _REMOTE.fullmatch(out["remote"] or ""):
+        out["reason"] = "no_upstream"
+    return out
+
+
+def _is_ancestor(top, a, b):
+    return _raw(["merge-base", "--is-ancestor", a, b], top, BASE_CONFIG + _repo_overrides(top))[0] == 0
+
+
+def _pull_error(text):
+    t = text.lower()
+    if "would be overwritten" in t or "untracked working tree files" in t:
+        return "local_changes"
+    if "not possible to fast-forward" in t or "diverg" in t:
+        return "non_ff"
+    if ("could not read username" in t or "authentication failed" in t or "terminal prompts disabled" in t
+            or "permission denied" in t or "could not read from remote repository" in t):
+        return "auth"
+    return "git_failed"
+
+
+def pull(top, unsaved=(), allow_unsaved=False):
+    lock = _pull_locks[os.path.normcase(top)]
+    if not lock.acquire(blocking=False):
+        raise GitError("busy", "a pull is already running in this repository")
+    try:
+        inf = pull_info(top)
+        if inf["reason"]:
+            return {"ok": False, "error": inf["reason"], "info": inf}
+        output = []
+        if inf["remote"] != ".":
+            rc, text = _wrun(["fetch", inf["remote"]], top)
+            output.append("$ git fetch " + inf["remote"] + ("\n" + text if text else ""))
+            if rc:
+                return {"ok": False, "error": _pull_error(text), "output": "\n".join(output), "info": inf}
+        head = run(["rev-parse", "--verify", "HEAD^{commit}"], top).decode().strip()
+        up = run(["rev-parse", "--verify", "--end-of-options", "@{upstream}^{commit}"], top).decode().strip()
+        if head == up or _is_ancestor(top, up, head):
+            return {"ok": True, "updated": False, "output": "\n".join(output + ["Already up to date."]), "info": inf}
+        if not _is_ancestor(top, head, up):
+            output.append(f"{inf['branch']} and {inf['upstream']} have diverged — not a fast-forward; nothing changed.")
+            return {"ok": False, "error": "non_ff", "output": "\n".join(output), "info": inf}
+        files = [f for f in run(["diff-tree", "-r", "--name-only", "--no-renames", "-z", head, up], top,
+                                timeout=30).decode("utf-8", "replace").split("\0") if f]
+        unsaved = {str(u).replace("\\", "/") for u in (unsaved or []) if isinstance(u, str)}
+        hit = sorted(f for f in files if f in unsaved)
+        if hit and not allow_unsaved:
+            return {"ok": False, "need_confirm": "unsaved", "files": hit, "incoming": len(files),
+                    "output": "\n".join(output), "info": inf}
+        rc, text = _wrun(["merge", "--ff-only", up], top)
+        output.append("$ git merge --ff-only " + up[:12] + ("\n" + text if text else ""))
+        if rc:
+            return {"ok": False, "error": _pull_error(text), "output": "\n".join(output), "info": inf}
+        n = int(run(["rev-list", "--count", head + ".." + up], top).decode().strip() or 0)
+        return {"ok": True, "updated": True, "from": head, "to": up, "commits": n, "files": len(files),
+                "changed": files[:2000], "output": "\n".join(output), "info": inf}
+    finally:
+        lock.release()
+
+
+def api_pull(data):
+    try:
+        exe, _, reason = git_exe()
+        if reason:
+            return {"ok": False, "error": reason}
+        top = repo_of(str(data.get("repo") or ""))
+        unsaved = data.get("unsaved") or []
+        if not isinstance(unsaved, list) or len(unsaved) > 10000:
+            raise GitError("bad_arg", "unsaved")
+        return pull(top, unsaved, bool(data.get("allow_unsaved")))
+    except GitError as e:
+        return (400 if e.code in ("bad_arg", "not_repo") else 200), {"ok": False, "error": e.code, "detail": e.detail}
+
+
+# ----- AgentO deep-link requests (toolbar Commit / Push) -----
+# ReadO does not commit or push. The buttons hand the request to AgentO through
+# agento://dispatch?… (docs/GIT-DESIGN.md, "AgentO deep-link request spec (v1)"): structured
+# values only, no commands. Without a registered agento: handler the page copies an instruction.
+
+AGENTO_KINDS = ("commit", "push")
+DEEPLINK_MAX = 2000      # Windows ShellExecute / browsers stay well below their limits
+DEEPLINK_MSG_MAX = 200
+REQUEST_TTL = 24 * 3600  # request files older than this are removed
+REQUEST_FILES_MAX = 2000
+
+
+def requests_dir():
+    return os.path.join(os.path.dirname(S.CONFIG_PATH) or ".", "requests")
+
+
+def agento_handler():
+    """The registered agento: protocol's open command, or None (HKCR\\agento with "URL Protocol")."""
+    try:
+        import winreg
+    except ImportError:
+        return None
+    try:
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "agento") as k:
+            winreg.QueryValueEx(k, "URL Protocol")
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r"agento\shell\open\command") as k:
+            cmd = winreg.QueryValueEx(k, "")[0]
+        return cmd or None
+    except OSError:
+        return None
+
+
+def _startfile(url):  # replaced in tests
+    os.startfile(url)
+
+
+def _clean_msg(msg):
+    msg = re.sub(r"[\x00-\x1f\x7f]+", " ", str(msg or "")).strip()
+    return re.sub(r"\s{2,}", " ", msg)[:DEEPLINK_MSG_MAX]
+
+
+def _prune_requests(d):
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return
+    now = time.time()
+    for n in names:
+        p = os.path.join(d, n)
+        try:
+            if n.endswith(".json") and now - os.path.getmtime(p) > REQUEST_TTL:
+                os.remove(p)
+        except OSError:
+            pass
+
+
+def _write_request(payload):
+    import json
+    d = requests_dir()
+    os.makedirs(d, exist_ok=True)
+    _prune_requests(d)
+    rid = time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(4)
+    payload = dict(payload, id=rid)
+    tmp = os.path.join(d, rid + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, os.path.join(d, rid + ".json"))
+    return rid
+
+
+def deeplink(params):
+    """agento://dispatch?… from ordered (name, value) pairs; every value percent-encoded."""
+    import urllib.parse
+    return "agento://dispatch?" + "&".join(k + "=" + urllib.parse.quote(str(v), safe="") for k, v in params)
+
+
+def agento_request(top, kind, msg="", files=None):
+    """Build the request: (url, ref id or None, payload)."""
+    if kind not in AGENTO_KINDS:
+        raise GitError("bad_arg", "kind")
+    st = status(top, fresh=True)
+    b = st["branch"]
+    changed = [f for f in st["files"] if f["kind"] != "conflicted"]
+    if files:  # the page's ticked files: only those that really changed
+        want = {_check_rel(f) for f in files[:REQUEST_FILES_MAX]}
+        picked = [f for f in changed if f["path"] in want]
+        changed = picked or changed
+    msg = _clean_msg(msg)
+    branch = b.get("head", "")
+    if not branch:
+        raise GitError("detached")
+    if kind == "commit" and not changed:
+        raise GitError("nothing_to_commit")
+    if kind == "push" and b.get("upstream") and not b.get("ahead"):
+        raise GitError("nothing_to_push")
+    root = top.replace("/", "\\") if os.name == "nt" else top
+    payload = {"v": 1, "source": "reado", "kind": kind, "repo": root, "branch": branch,
+               "upstream": b.get("upstream", ""), "ahead": b.get("ahead", 0), "behind": b.get("behind", 0),
+               "dirty": len(st["files"]), "msg": msg, "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+               "files": [{"path": f["path"], "kind": f["kind"]} for f in changed[:REQUEST_FILES_MAX]] if kind == "commit" else []}
+    params = [("v", 1), ("source", "reado"), ("kind", kind), ("repo", root), ("branch", branch),
+              ("ahead", payload["ahead"]), ("dirty", payload["dirty"])]
+    ref = None
+    if kind == "commit":  # the file list travels in a request file, not the URL
+        ref = _write_request(payload)
+    url = deeplink(params + ([("msg", msg)] if msg else []) + ([("ref", ref)] if ref else []))
+    if len(url) > DEEPLINK_MAX and msg:  # the message moves into the request file
+        ref = ref or _write_request(payload)
+        url = deeplink(params + [("ref", ref)])
+    if len(url) > DEEPLINK_MAX:
+        raise GitError("too_long", "repository path too long for a deep link")
+    return url, ref, payload
+
+
+def api_agento_request(data):
+    try:
+        exe, _, reason = git_exe()
+        if reason:
+            return {"sent": False, "error": reason}
+        top = repo_of(str(data.get("repo") or ""))
+        files = data.get("files") or []
+        if not isinstance(files, list):
+            raise GitError("bad_arg", "files")
+        url, ref, payload = agento_request(top, str(data.get("kind") or ""), data.get("msg") or "", files)
+    except GitError as e:
+        return (400 if e.code in ("bad_arg", "not_repo") else 200), {"sent": False, "error": e.code, "detail": e.detail}
+    out = {"url": url, "ref": ref, "branch": payload["branch"], "ahead": payload["ahead"],
+           "dirty": payload["dirty"], "files": [f["path"] for f in payload["files"]]}
+    if not agento_handler():
+        return dict(out, sent=False, fallback="no_handler")
+    try:
+        _startfile(url)
+    except OSError as e:
+        return dict(out, sent=False, fallback="launch_failed", detail=str(e)[:200])
+    return dict(out, sent=True)
+
+
 # ----- routing -----
 
 def handle_get(name, q):
@@ -1316,6 +1585,8 @@ def handle_get(name, q):
             return 200, show(top, rev, _first(q, "path"))
         if name == "stash":
             return 200, stash(top)
+        if name == "pullinfo":
+            return 200, pull_info(top)
         return 404, {"error": "not found"}
     except GitError as e:
         code = 400 if e.code in ("bad_arg", "not_repo") else 200
@@ -1491,6 +1762,8 @@ def register(server_module):
     S = server_module
     S.write_api("/api/git/commits", max_body=1_000_000)(api_commits)
     S.write_api("/api/git/agento")(api_agento)
+    S.write_api("/api/git/pull")(api_pull)
+    S.write_api("/api/git/agento-request", max_body=1_000_000)(api_agento_request)
     S.write_api("/api/git/terminal")(api_terminal)
     S.write_api("/api/git/diffwin", max_body=4_000_000)(api_diffwin)
     S.write_api("/api/git/diffwin-nav")(api_diffwin_nav)

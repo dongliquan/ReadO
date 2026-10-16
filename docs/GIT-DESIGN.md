@@ -134,6 +134,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 - [**11. 위험 요인**](#cat-11)
 - [**12. 테스트 계획**](#cat-12)
 - [**13. 구현 결과**](#cat-13) (실측 · 설계와 달라진 점)
+- [**14. 툴바 Git 그룹 · AgentO 딥링크 요청 스펙(v1)**](#cat-14)
 
 ---
 
@@ -150,6 +151,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 | <span class="cn">3</span> | 쓰기 조작은 **"AgentO로 보내기"** 액션으로 전달. 기본 = 프롬프트 클립보드 복사 + AgentO 포커스, 옵션 = AgentO 데몬 WS 브리지(실험) | AgentO에 외부 진입점(딥링크·argv)이 없음 → 무변경으로 확실한 경로는 클립보드뿐 |
 | <span class="cn">4</span> | 로그 그래프는 `git log --graph` 출력이 아니라 **`--format` 파싱 + 프런트 JS 레인 계산**(VS Code SCM Graph 방식, MIT) | 페이지 단위 이어붙이기·가상 스크롤과 맞음 |
 | <span class="cn">5</span> | 새 코드는 **별도 파일**(`gitview.py`, `git.js`/`git.css`)로 두고 기존 파일에는 등록 훅만 추가 | 에디터 구현 세션과 `server.py`·`source.html` 동시 수정 충돌 최소화 |
+| <span class="cn">2a</span> | **예외(2026-10-16, 매니저 결정)**: 툴바 **Pull만** ReadO가 직접 실행한다. fetch 후 `merge --ff-only`만 하고(= `git pull --ff-only`), 병합 커밋·rebase·autostash는 하지 않으며 fast-forward가 안 되면 아무것도 바꾸지 않고 멈춘다. Commit·Push는 계속 AgentO 담당이며, [§14](#cat-14) 딥링크로 요청한다 | ReadO는 보기 중심이고, 최신 코드를 받아 보는 일만 바로 할 수 있게 함 |
 | <span class="cn">6</span> | IntelliJ에서 **가져올 것**: Log 3단(브랜치 트리·그래프 표·상세+파일 트리), 필터 바, Local Changes, diff, Annotate(blame), 파일 History. **뺄 것**: Commit/Push 대화상자, Shelf/Stash 조작, 충돌 해결 3-way 머지, 인터랙티브 rebase, 원격 관리 | 가벼운 뷰어 철학 + 쓰기는 AgentO |
 
 ---
@@ -696,3 +698,93 @@ Ctrl+K·Ctrl+Shift+K는 실제 커밋이 아니라 **지시문 미리보기 대�
 | 우클릭 | 복수 선택 시 Copy Revision Numbers (N), Copy Subjects (N)만 활성. Show in Log·AgentO 항목은 비활성 |
 | 성능 | 30,000커밋 저장소: 연속 800개 0.3s, 흩어진 600개(500개 나열) 0.6s. 응답이 늦게 와도 세대 번호로 버림 |
 | 검증 | `test_git.py` +14(범위·base, 병합·합산·A 상태, 정렬, 머지 커밋, 루트까지 범위, 1개·옵션형 rev·토큰 없음 거부, huge 범위·partial). `ui_git_smoke.py` +14(Ctrl+클릭, 강조, 요약, 병합 트리, base..newest diff, 우클릭 메뉴·선택 유지, Shift+클릭 범위, Shift+↓, Ctrl+A, Ctrl+C, 단일 선택 회귀 2) |
+
+---
+
+<a id="cat-14"></a>
+
+# <span class="num">14</span> 툴바 Git 그룹 · AgentO 딥링크 요청 스펙(v1, 초안) <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+
+> 상단 툴바에서 현재 브랜치를 보여 준다. Pull은 ReadO가 직접 실행하고, Commit·Push는 AgentO에 요청한다(2026-10-16). **현재 단계**: Commit·Push는 기존 방식대로 지시문을 클립보드에 복사하고 AgentO를 띄운다. `agento://` 딥링크(§14.3)는 AgentO 핸들러가 준비되면 켠다. 서버 API와 테스트는 이미 있고, `git.js`의 `USE_DEEPLINK = false`로 꺼 두었다.
+
+## 14.1 툴바와 상단 바 정리
+
+| 항목 | 내용 |
+|---|---|
+| 대상 저장소 | 활성 파일이 속한 저장소(`/api/git/info?path=`, 폴더별 60초 캐시)다. 열린 파일이 없으면 Git 도구창에서 고른 저장소를 쓴다 |
+| 브랜치 버튼 | 브랜치 아이콘, 브랜치 이름(13px 굵게, 말줄임), ↑ahead ↓behind(0이면 숨김)를 보여 준다. 클릭하면 Git 도구창 Log 탭이 그 저장소로 열린다. 우클릭은 브랜치 팝업이다. 툴팁에는 저장소, upstream, 경로를 보여 준다 |
+| Pull ↓ | ReadO가 직접 실행한다(§1 결정 2a). 비활성 조건은 git 없음, 저장소 아님, detached, upstream 없음, merge·rebase 진행 중, 실행 중이다 |
+| Commit ✓ · Push ↑ | AgentO 요청 버튼이다. 점선 테두리와 `A` 표시로 Pull과 구분하고, 툴팁은 "AgentO에 요청(head coach에게 전달)"이다. Commit은 대상 파일 목록(Local Changes에서 체크한 파일, 없으면 변경 전부)과 선택 입력인 메시지 초안을 받는다. Push는 확인창을 거친다. 지금은 두 버튼 모두 지시문을 복사하고 AgentO를 띄운다(토스트: "AgentO에 보낼 commit 지시문을 복사했습니다"). Commit은 변경 파일이 없으면, Push는 ahead 0이면(upstream이 있을 때) 비활성이다. git commit·push를 실행하는 코드는 없다 |
+| 새로고침 | 활성 파일이 바뀌면 바로, 그 밖에는 4초마다 fingerprint를 확인한다. 바뀌었거나 8초가 지나면 status를 다시 읽는다. 창 포커스, pull, 요청 후에는 즉시 갱신하고, 같은 저장소면 Log·Local Changes·상태바도 갱신한다 |
+| 브레드크럼 | 작업 폴더 아래에 있는 저장소면 경로에서 저장소 폴더 세그먼트를 칩(굵게, 강조 배경)으로 표시한다. 작업 폴더 자체가 저장소이거나 저장소 안에 있으면 칩 없이 폴더 칩만 보인다 |
+| 검색창 | 플레이스홀더를 "Go to file (Ctrl+P) · Commands (Ctrl+Shift+P) · Find in Files (Ctrl+Shift+F)"로 바꿨다. 팔레트 모드 탭은 Files · `>` Commands · `%` Text · `#` Symbols다. `%`는 폴더 전체 일반 텍스트 검색(최대 300줄)이다. 첫 줄 또는 Ctrl+Enter, Ctrl+Shift+F를 누르면 같은 검색어로 Find in Files 창이 열린다. 툴바의 Find in Files 버튼은 제거했고, 창과 단축키는 그대로다 |
+| 설정 | 톱니 아이콘을 왼쪽 도구창 스트립 맨 아래(Git 아래)로 옮겼다. 테마 토글은 오른쪽에 그대로 둔다 |
+| 좁은 창 | compact에서는 라벨과 ↑↓를 숨기고 브랜치 이름 최대폭을 150px로 줄인다. tiny에서는 브랜치 이름도 숨겨 아이콘만 남는다(file·view 그룹은 `⋯`로 접힘) |
+
+## 14.2 Pull 동작
+
+| 단계 | 내용 |
+|---|---|
+| 확인창 | `GET /api/git/pullinfo?repo=`로 저장소, 브랜치 ← upstream, 원격 이름과 URL(`user:pass@` 제거), 로컬 변경 수, 저장 안 된 편집 파일 수를 보여 준다 |
+| 실행 | `POST /api/git/pull {repo, unsaved[], allow_unsaved}`(`write_api`: CSRF 토큰, Host·Origin 검사, `repo_of` 경로 검증). `git fetch <remote>`를 실행한 뒤 HEAD와 `@{upstream}`을 비교한다. 같거나 upstream이 HEAD의 조상이면 "Already up to date"다. HEAD가 upstream의 조상이 아니면 `non_ff`로 멈춘다 |
+| 저장 안 된 편집 | 들어올 파일(`diff-tree HEAD..upstream`)과 페이지의 저장 안 된 파일이 겹치면 `need_confirm: "unsaved"`로 멈추고 다시 묻는다 |
+| 병합 | `git merge --ff-only <fetch한 sha>`를 실행한다. 로컬 변경을 덮어쓰게 되면 git이 거부하므로(`local_changes`) 아무것도 바뀌지 않는다 |
+| 제한 | 단계마다 60초 타임아웃이 있다. `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, 빈 `GIT_ASKPASS`를 쓰고, 자격 증명이 필요하면 `auth` 오류로 안내한다. hooks는 끄고(`core.hooksPath=NUL`), 저장소별 pull 잠금을 건다(`busy`). 허용 명령은 `PULL_CMDS={fetch, merge}`이고 `pull()`만 쓰며, `run()`은 여전히 읽기 전용만 허용한다 |
+| 결과 | 성공·실패 토스트를 띄운다. 명령과 출력은 Console 탭에 기록되고(`out` 필드), 실패하면 Console 탭이 열린다 |
+
+<a id="sec-14-3"></a>
+
+## 14.3 AgentO 딥링크 요청 스펙(v1, 초안 — AgentO 구현과 맞춰 확정)
+
+ReadO는 구조화된 값만 보낸다. 지시문 본문은 AgentO가 만든다. 셸 명령, 토큰, 임의 코드는 넣지 않으며, force 관련 파라미터는 아예 없다.
+
+```
+agento://dispatch?v=1&source=reado&kind=<commit|push>&repo=<저장소 루트 절대경로>&branch=<현재 브랜치>&ahead=<n>&dirty=<변경 파일 수>[&msg=<커밋 메시지 초안>][&ref=<요청 id>]
+```
+
+| 파라미터 | 필수 | 값 |
+|---|---|---|
+| `v` | ✓ | `1`(스펙 버전). 모르는 버전은 거부한다 |
+| `source` | ✓ | `reado` |
+| `kind` | ✓ | `commit` 또는 `push`(화이트리스트). 그 밖의 값은 거부한다 |
+| `repo` | ✓ | 저장소 루트 절대경로(Windows 표기 `C:\…`)를 퍼센트 인코딩한 값이다 |
+| `branch` | ✓ | 현재 체크아웃 브랜치(detached면 요청하지 않음) |
+| `ahead` | ✓ | upstream보다 앞선 커밋 수(upstream이 없으면 0) |
+| `dirty` | ✓ | 변경 파일 수(untracked 포함) |
+| `msg` | | 커밋 메시지 초안. 제어문자를 제거하고 200자로 자른다. URL이 2000자를 넘으면 요청 파일로 옮기고 URL에서는 뺀다 |
+| `ref` | | 요청 파일 id(`YYYYMMDD-HHMMSS-<8 hex>`). commit은 항상 붙고, push는 msg를 옮길 때만 붙는다 |
+
+- **인코딩**: 모든 값을 UTF-8로 퍼센트 인코딩한다(`encodeURIComponent`와 같으며 예약문자도 인코딩). URL 전체 길이는 2000자 이하이고, 넘으면 `too_long` 오류다.
+- **요청 파일** `%APPDATA%\ReadO\requests\<ref>.json`(UTF-8):
+  - 키: `{v, id, source, kind, repo, branch, upstream, ahead, behind, dirty, msg, created, files:[{path, kind}]}`
+  - `files`는 저장소 기준 상대경로이고 최대 2000개다. Local Changes에서 체크한 파일이 있으면 그 파일만 들어간다.
+  - 24시간이 지난 파일은 다음 요청 때 지운다.
+- **실행**:
+  1. 서버가 `HKCR\agento`에 `URL Protocol` 값과 `shell\open\command`가 있는지 확인한다.
+  2. 있으면 `os.startfile(url)`로 요청을 보낸다. 토스트: "AgentO에 commit 요청을 보냈습니다".
+- **폴백**: 핸들러가 없거나(`fallback: "no_handler"`) 실행에 실패하면(`launch_failed`) 기존 지시문(§4)을 클립보드에 복사한다. 토스트: "AgentO가 아직 agento:// 요청을 지원하지 않습니다. 지시문을 복사했습니다".
+- **API**: `POST /api/git/agento-request {repo, kind, msg?, files?}` → `{sent, fallback?, url, ref, branch, ahead, dirty, files}`. 값(branch, ahead, dirty, files)은 서버가 git status로 다시 구하고, 페이지가 보낸 값은 쓰지 않는다. 비활성 조건은 서버에서도 확인한다(`nothing_to_commit`, `nothing_to_push`, `detached`).
+
+예시:
+
+```
+agento://dispatch?v=1&source=reado&kind=commit&repo=C%3A%5CProjects%5Cmy-repo&branch=feature%2Fmy-page&ahead=0&dirty=3&msg=fix%3A%20claim%20model&ref=20261016-101500-1a2b3c4d
+agento://dispatch?v=1&source=reado&kind=push&repo=C%3A%5CProjects%5Cmy-repo&branch=main&ahead=2&dirty=0
+```
+
+**AgentO 구현자 요구사항(보안)**
+
+| # | 요구 |
+|---|---|
+| 1 | `v`·`source`·`kind`는 화이트리스트로 검사하고, 모르는 파라미터는 무시한다. 퍼센트 디코딩이 실패하거나 값에 제어문자가 있으면 거부한다 |
+| 2 | **`repo`가 AgentO에 등록된 프로젝트 폴더(또는 그 하위)일 때만** 처리하고, 그 프로젝트의 head coach에게 "kind 요청"으로 전달한다. 등록되지 않은 경로는 사용자에게 알리고 버린다 |
+| 3 | `ref`는 `^\d{8}-\d{6}-[0-9a-f]{8}$` 형식만 허용한다. `%APPDATA%\ReadO\requests\` 밖의 파일은 읽지 않는다. 파일의 `repo`·`kind`가 URL과 다르면 거부한다 |
+| 4 | `msg`·`files`는 지시문의 데이터로만 쓰고, 명령으로 해석하거나 셸에 넘기지 않는다. push는 force 없이 진행하고 ahead·behind를 먼저 확인하라고 지시한다 |
+| 5 | 같은 요청이 여러 번 오면(사용자 연타) 짧은 시간 안의 중복은 하나로 합친다 |
+
+## 14.4 검증
+
+| 테스트 | 항목 |
+|---|---|
+| `test_git.py` | 로컬 bare 원격과 클론 2개로 pullinfo, 성공(커밋 수·파일 수), 이미 최신, 비FF 거부(HEAD 불변), 로컬 변경 충돌 시 중단(작업 트리 불변), 저장 안 된 편집 확인, upstream 없음, CSRF 거부, `run()`의 fetch·merge 거부를 확인한다. 딥링크는 URL 형식, 인코딩, 200자 msg, 2000자 제한, ref 파일 내용, 핸들러 미등록 폴백, startfile 실패 폴백, kind 화이트리스트, nothing_to_commit·push를 확인한다(startfile 목킹) |
+| `ui_git_smoke.py` | 툴바 그룹 렌더, 브랜치 이름·↑↓, 버튼 비활성 조건, 브레드크럼 저장소 칩, pull 확인창과 실행, commit 요청 대화상자, 설정 아이콘 위치, 팔레트 모드 탭·`%` 검색, Find in Files 버튼 제거를 확인한다 |

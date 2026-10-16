@@ -426,6 +426,182 @@ def fx_tests(c, fx):
     check(len(d.get("entries", [])) > 10 and all(e["cmd"].startswith("git ") for e in d["entries"]), "console log")
 
 
+def _g(cwd, *args):
+    import subprocess
+    r = subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main",
+                        "-c", "core.autocrlf=false"] + list(args), cwd=cwd, capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError(f"git {' '.join(args)}: {r.stderr}")
+    return r.stdout.strip()
+
+
+def _commit(cwd, name, text, msg):
+    with open(os.path.join(cwd, name), "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    _g(cwd, "add", name)
+    _g(cwd, "commit", "-q", "-m", msg)
+
+
+def pull_tests(tmp):
+    """Toolbar Pull (fetch + merge --ff-only) against a local bare remote, and the AgentO deep link."""
+    import gitview
+    base = os.path.join(tmp, "pullfx")
+    remote, a, b = (os.path.join(base, n) for n in ("remote.git", "a", "b"))
+    os.makedirs(base)
+    _g(base, "init", "-q", "--bare", "remote.git")
+    _g(base, "clone", "-q", remote, "b")
+    _commit(b, "f.txt", "one\n", "first")
+    _commit(b, "g.txt", "g\n", "second")
+    _g(b, "push", "-q", "origin", "HEAD:main")
+    _g(base, "clone", "-q", "-b", "main", remote, "a")
+    srv, c = start(base)
+    server.CONFIG_PATH = os.path.join(tmp, "cfg", "config.json")  # request files land in tmp
+    A = a.replace("\\", "/")
+    head = lambda: _g(a, "rev-parse", "HEAD")
+
+    print("== pull (toolbar): info")
+    code, d, _ = c.git("pullinfo", repo=A)
+    check(code == 200 and d.get("branch") == "main" and d.get("upstream") == "origin/main" and d.get("remote") == "origin"
+          and not d.get("reason") and d.get("url"), f"pullinfo: main ← origin/main via origin ({d.get('reason')})")
+
+    print("== pull: fast-forward")
+    _commit(b, "f.txt", "one\ntwo\n", "third")
+    _g(b, "push", "-q", "origin", "HEAD:main")
+    code, d = c.post("/api/git/pull", {"repo": A})
+    check(code == 200 and d.get("ok") and d.get("updated") and d.get("commits") == 1 and d.get("files") == 1,
+          f"pull: 1 commit, 1 file ({d.get('error')} {d.get('commits')} {d.get('files')})")
+    check(head() == _g(b, "rev-parse", "HEAD"), "pull: HEAD = remote head")
+    check("fetch origin" in d.get("output", "") and "merge --ff-only" in d.get("output", ""), "pull: output names fetch + merge --ff-only")
+    code, con, _ = c.git("console")
+    check(any(e["cmd"].startswith("git fetch origin") for e in con.get("entries", []))
+          and any(e["cmd"].startswith("git merge --ff-only") and e.get("out") is not None for e in con.get("entries", [])),
+          "pull: fetch / merge in the Console with output")
+    code, d = c.post("/api/git/pull", {"repo": A})
+    check(d.get("ok") and d.get("updated") is False and "Already up to date" in d.get("output", ""), "pull again: already up to date")
+
+    print("== pull: refused cases change nothing")
+    _commit(a, "local.txt", "x\n", "local only")
+    _commit(b, "h.txt", "h\n", "remote only")
+    _g(b, "push", "-q", "origin", "HEAD:main")
+    before = head()
+    code, d = c.post("/api/git/pull", {"repo": A})
+    check(not d.get("ok") and d.get("error") == "non_ff" and head() == before, f"diverged: non_ff, HEAD unchanged ({d.get('error')})")
+    _g(a, "reset", "-q", "--hard", "origin/main")
+    _commit(b, "f.txt", "one\ntwo\nthree\n", "remote edit of f")
+    _g(b, "push", "-q", "origin", "HEAD:main")
+    with open(os.path.join(a, "f.txt"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("my local edit\n")
+    before = head()
+    code, d = c.post("/api/git/pull", {"repo": A})
+    with open(os.path.join(a, "f.txt"), encoding="utf-8") as f:
+        kept = f.read() == "my local edit\n"
+    check(not d.get("ok") and d.get("error") == "local_changes" and head() == before and kept,
+          f"local change in the way: stopped, HEAD + file unchanged ({d.get('error')})")
+    _g(a, "checkout", "-q", "--", "f.txt")
+    code, d = c.post("/api/git/pull", {"repo": A, "unsaved": ["f.txt", "other.txt"]})
+    check(d.get("need_confirm") == "unsaved" and d.get("files") == ["f.txt"] and head() == before,
+          "unsaved edits in an incoming file: asks first, HEAD unchanged")
+    code, d = c.post("/api/git/pull", {"repo": A, "unsaved": ["f.txt"], "allow_unsaved": True})
+    check(d.get("ok") and d.get("updated"), "unsaved: pull anyway after the confirmation")
+    _g(a, "checkout", "-q", "-b", "topic")
+    code, d, _ = c.git("pullinfo", repo=A)
+    check(d.get("reason") == "no_upstream", "branch without upstream: pullinfo says no_upstream")
+    code, d = c.post("/api/git/pull", {"repo": A})
+    check(not d.get("ok") and d.get("error") == "no_upstream", "branch without upstream: pull refused")
+    _g(a, "checkout", "-q", "main")
+    code, d = c.post("/api/git/pull", {"repo": A}, token=False)
+    check(code == 403, f"pull without the page token refused ({code})")
+    code, d = c.post("/api/git/pull", {"repo": os.environ.get("SystemRoot", "C:/Windows")})
+    check(code == 400 and d.get("error") == "not_repo", "pull outside the working folder refused")
+    for cmd in (["fetch", "origin"], ["merge", "--ff-only", "origin/main"], ["push"], ["pull"]):
+        try:
+            gitview.run(cmd, a)
+            check(False, f"run() refuses {cmd[0]}")
+        except gitview.GitError as e:
+            check(e.code == "bad_arg", f"run() refuses {cmd[0]}")
+    try:
+        gitview._check_allowed(["push", "--force"], write=True)
+        check(False, "pull runner refuses push")
+    except gitview.GitError:
+        check(True, "pull runner refuses push")
+    check(gitview._safe_url("https://user:secret@example.com/r.git") == "https://example.com/r.git", "remote URL shown without credentials")
+
+    print("== AgentO deep link (commit / push requests)")
+    sent = []
+    orig = (gitview.agento_handler, gitview._startfile, gitview.DEEPLINK_MAX)
+    try:
+        gitview._startfile = lambda url: sent.append(url)
+        gitview.agento_handler = lambda: None
+        code, d = c.post("/api/git/agento-request", {"repo": A, "kind": "commit"})
+        check(not d.get("sent") and d.get("error") == "nothing_to_commit", "commit with no changes: refused")
+        with open(os.path.join(a, "new file.txt"), "w") as f:
+            f.write("n\n")
+        with open(os.path.join(a, "g.txt"), "w") as f:
+            f.write("changed\n")
+        msg = "fix: 클레임 모델 & a=b?#x\n" + "y" * 400
+        code, d = c.post("/api/git/agento-request", {"repo": A, "kind": "commit", "msg": msg})
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(d.get("url", "")).query)
+        check(code == 200 and d.get("sent") is False and d.get("fallback") == "no_handler" and not sent,
+              "no agento: handler: not launched, fallback")
+        check(d.get("url", "").startswith("agento://dispatch?v=1&source=reado&kind=commit&repo="), "URL: scheme, v, source, kind first")
+        check(q.get("repo") == [os.path.realpath(a)] and q.get("branch") == ["main"] and q.get("dirty") == ["2"] and q.get("ahead") == ["0"],
+              f"URL values decode back (repo, branch, dirty 2, ahead 0) {q.get('dirty')}")
+        check(len(q.get("msg", [""])[0]) == 200 and q["msg"][0].startswith("fix: 클레임 모델 & a=b?#x y"), "msg: control chars out, 200 chars, encoded")
+        check(" " not in d["url"] and "#" not in d["url"] and "&a=b" not in d["url"] and len(d["url"]) <= 2000, "URL: everything percent-encoded, ≤ 2000")
+        ref = q.get("ref", [""])[0]
+        rf = os.path.join(tmp, "cfg", "requests", ref + ".json")
+        check(bool(ref) and os.path.isfile(rf), "commit: request file written, ref in the URL")
+        if os.path.isfile(rf):
+            with open(rf, encoding="utf-8") as f:
+                p = json.load(f)
+            check(p.get("kind") == "commit" and p.get("repo") == os.path.realpath(a) and sorted(x["path"] for x in p.get("files", [])) == ["g.txt", "new file.txt"]
+                  and p.get("v") == 1 and len(p.get("msg", "")) == 200, "request file: kind, repo, files, msg")
+        code, d = c.post("/api/git/agento-request", {"repo": A, "kind": "commit", "files": ["g.txt"]})
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(d.get("url", "")).query)
+        check(d.get("files") == ["g.txt"], "ticked files: only those in the request")
+        old = os.path.join(tmp, "cfg", "requests", "20200101-000000-00000000.json")
+        with open(old, "w") as f:
+            f.write("{}")
+        os.utime(old, (time.time() - 3 * 86400,) * 2)
+        gitview.agento_handler = lambda: '"C:\\AgentO\\AgentO.exe" "%1"'
+        code, d = c.post("/api/git/agento-request", {"repo": A, "kind": "commit", "msg": "m"})
+        check(d.get("sent") is True and sent == [d.get("url")], "handler registered: os.startfile(url) called once")
+        check(not os.path.exists(old), "request files older than a day removed")
+        gitview.DEEPLINK_MAX = len(d["url"]) - 5 + len("m")  # msg no longer fits
+        code, d = c.post("/api/git/agento-request", {"repo": A, "kind": "commit", "msg": "m" * 50})
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(d.get("url", "")).query)
+        check("msg" not in q and q.get("ref") and len(d["url"]) <= gitview.DEEPLINK_MAX, "over the length limit: msg moves into the request file")
+        gitview.DEEPLINK_MAX = 30
+        code, d = c.post("/api/git/agento-request", {"repo": A, "kind": "commit"})
+        check(d.get("error") == "too_long", "URL still too long: refused")
+        gitview.DEEPLINK_MAX = orig[2]
+
+        def boom(url):
+            raise OSError("no association")
+        gitview._startfile = boom
+        code, d = c.post("/api/git/agento-request", {"repo": A, "kind": "commit"})
+        check(d.get("sent") is False and d.get("fallback") == "launch_failed", "startfile fails: fallback")
+        gitview._startfile = lambda url: sent.append(url)
+        code, d = c.post("/api/git/agento-request", {"repo": A, "kind": "push"})
+        check(d.get("error") == "nothing_to_push", "push with ↑0: refused")
+        _g(a, "add", "-A")
+        _g(a, "-c", "user.name=T", "commit", "-q", "-m", "to push")
+        sent.clear()
+        code, d = c.post("/api/git/agento-request", {"repo": A, "kind": "push"})
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(d.get("url", "")).query)
+        check(d.get("sent") and q.get("kind") == ["push"] and q.get("ahead") == ["1"] and "ref" not in q and "force" not in d["url"].lower(),
+              "push: ahead 1, no request file, no force parameter")
+        check(_g(a, "rev-list", "--count", "origin/main..main") == "1", "push request: nothing was pushed by ReadO")
+        for bad in ("reset", "push --force", "", "COMMIT"):
+            code, d = c.post("/api/git/agento-request", {"repo": A, "kind": bad})
+            check(code == 400 and d.get("error") == "bad_arg", f"kind {bad!r} refused")
+        code, d = c.post("/api/git/agento-request", {"repo": A, "kind": "push"}, token=False)
+        check(code == 403, "agento-request without the page token refused")
+    finally:
+        gitview.agento_handler, gitview._startfile, gitview.DEEPLINK_MAX = orig
+    srv.shutdown()
+
+
 def perf(c, top, label, rounds=1):
     R = top.replace("\\", "/")
     rows = []
@@ -478,6 +654,7 @@ def main():
         for k, v in snaps.items():
             check(snapshot(fx[k]) == v, f"{k}: HEAD / index / refs / config unchanged")
         srv.shutdown()
+        pull_tests(tmp)
         for repo in extra:
             before = snapshot(repo)
             srv, c = start(os.path.dirname(os.path.realpath(repo)))

@@ -52,6 +52,233 @@ def strip_git_click(pg, where):
     check(pg.evaluate(f"!STATE.git.open && !document.querySelector('{btn}').classList.contains('active')"), f"{where}: menu command again → icon inactive")
 
 
+def _g(cwd, *args):
+    import subprocess
+    r = subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main",
+                        "-c", "core.autocrlf=false"] + list(args), cwd=cwd, capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError(f"git {' '.join(args)}: {r.stderr}")
+    return r.stdout.strip()
+
+
+def _put(cwd, name, text):
+    with open(os.path.join(cwd, name), "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+
+
+def toolbar_tests(b, url, tmp, errors, shots):
+    """Top bar: Git group (branch, Pull, Commit / Push requests), repository chip, palette modes, settings icon."""
+    import gitview
+    base = os.path.realpath(os.path.join(tmp, "tbfx"))
+    os.makedirs(base)
+    _put(base, "loose.txt", "not in git\n")
+    _g(base, "init", "-q", "--bare", "remote.git")
+    _g(base, "clone", "-q", os.path.join(base, "remote.git"), "up")
+    _put(os.path.join(base, "up"), "f.txt", "one\n")
+    _g(os.path.join(base, "up"), "add", "f.txt")
+    _g(os.path.join(base, "up"), "commit", "-q", "-m", "first")
+    _g(os.path.join(base, "up"), "push", "-q", "origin", "HEAD:main")
+    _g(base, "clone", "-q", "-b", "main", os.path.join(base, "remote.git"), "my-repo")
+    A, UP = os.path.join(base, "my-repo"), os.path.join(base, "up")
+    server.SETTINGS["base_dir"] = base
+    pg = b.new_page(viewport={"width": 1500, "height": 900})
+    pg.on("pageerror", lambda e: errors.append("toolbar page: " + str(e)))
+    pg.goto(url)
+    pg.wait_for_function("typeof monaco !== 'undefined' && window.GitUI && document.querySelector('#tree .node')", timeout=30000)
+    shot = lambda n: shots and pg.screenshot(path=os.path.join(shots, n + ".png"))
+    ev = pg.evaluate
+    toast = lambda: ev("document.getElementById('toast').textContent")
+
+    print("== top bar: groups, settings icon, search")
+    check(ev("!!document.querySelector('#gtbBranch') && !!document.querySelector('#gtbPull') && !!document.querySelector('#gtbCommit') && !!document.querySelector('#gtbPush')"),
+          "Git group: branch · Pull · Commit · Push")
+    check(ev("!document.querySelector('#tbGroups [data-cmd=\"edit.findInFiles\"]') && !document.querySelector('#tbGroups [data-group=search]')"),
+          "toolbar Find in Files button removed")
+    check(ev("!document.querySelector('#tbGroups [data-cmd=\"file.settings\"]') && !!document.getElementById('themeBtn')"), "gear gone from the toolbar, theme toggle stays")
+    pos = ev("""(() => { const s = document.getElementById('tsSettings'), g = document.querySelector('#toolStrip .tsb[data-tool=git]');
+      return {last: s === s.parentNode.lastElementChild, below: s.getBoundingClientRect().top > g.getBoundingClientRect().bottom - 1, title: s.title}; })()""")
+    check(pos["last"] and pos["below"] and pos["title"].startswith("Settings"), f"settings icon at the bottom of the tool strip, below Git ({pos['title']})")
+    pg.click("#tsSettings")
+    pg.wait_for_function("document.getElementById('settingsBg').classList.contains('show')", timeout=5000)
+    check(True, "strip settings icon opens Settings")
+    ev("closeSettings()")
+    lbl = ev("document.querySelector('.tb-search .ellipsis').textContent")
+    check(lbl == "Go to file (Ctrl+P) · Commands (Ctrl+Shift+P) · Find in Files (Ctrl+Shift+F)", f"search box label ({lbl})")
+    check(ev("Object.fromEntries(['edit.findInFiles','go.file'].map(i => [i, CMD.get(i).keys]))") == {"edit.findInFiles": "Ctrl+Shift+F", "go.file": "Ctrl+P"},
+          "Find in Files / Go to file keys unchanged")
+
+    print("== top bar: Git group follows the active file")
+    ev("openFile('loose.txt')")
+    pg.wait_for_function("currentPath === 'loose.txt' && GitUI && document.querySelector('#gtbBranch .nm').textContent === 'Git'", timeout=10000)
+    time.sleep(1.5)
+    check(ev("['gtbPull','gtbCommit','gtbPush'].every(id => document.getElementById(id).disabled)") and ev("document.querySelector('#gtbBranch .nm').textContent") == "Git",
+          "file outside any repository: 'Git', Pull / Commit / Push disabled")
+    check(not ev("!!document.querySelector('#crumbs .crumb-repo')"), "file outside any repository: no repository chip")
+    ev("openFile('my-repo/f.txt')")
+    pg.wait_for_function("document.querySelector('#gtbBranch .nm').textContent === 'main'", timeout=10000)
+    st = ev("""(() => { const q = id => document.getElementById(id);
+      return {pull: q('gtbPull').disabled, commit: q('gtbCommit').disabled, push: q('gtbPush').disabled, ab: q('gtbBranch').querySelector('.ab').textContent,
+              ct: q('gtbCommit').title, pt: q('gtbPush').title, pl: q('gtbPull').title, bt: q('gtbBranch').title,
+              ag: [q('gtbPull'), q('gtbCommit'), q('gtbPush')].map(x => x.classList.contains('agento')),
+              border: getComputedStyle(q('gtbCommit')).borderTopStyle, fs: parseFloat(getComputedStyle(q('gtbBranch').querySelector('.nm')).fontSize)}; })()""")
+    check(not st["pull"] and st["commit"] and st["push"] and st["ab"] == "", f"clean, up to date: Pull on, Commit / Push off, no ↑↓ ({st})")
+    check("AgentO에 요청" in st["ct"] and "AgentO에 요청" in st["pt"] and "AgentO" not in st["pl"] and "--ff-only" in st["pl"], "tooltips: Commit / Push = AgentO requests, Pull = ff-only")
+    check(st["ag"] == [False, True, True] and st["border"] == "dashed", "Commit / Push marked as AgentO requests (dashed, A mark)")
+    check(st["fs"] >= 13 and "my-repo: branch main → origin/main" in st["bt"], f"branch name larger ({st['fs']}px), tooltip repository + upstream")
+    chip = ev("(() => { const c = document.querySelector('#crumbs .crumb-repo'); return c && {t: c.textContent, w: getComputedStyle(c).fontWeight, all: document.getElementById('crumbs').textContent}; })()")
+    check(chip and chip["t"] == "my-repo" and int(chip["w"]) >= 700 and chip["all"].replace(" ", "") == "my-repo/f.txt", f"breadcrumb: repository chip, path kept ({chip})")
+    shot("t1-toolbar")
+
+    print("== top bar: Pull")
+    _put(UP, "f.txt", "one\ntwo\n")
+    _put(UP, "g.txt", "g\n")
+    _g(UP, "add", "-A"); _g(UP, "commit", "-q", "-m", "remote work"); _g(UP, "push", "-q", "origin", "HEAD:main")
+    pg.route("**/api/git/pull", lambda route: (time.sleep(0.8), route.continue_()))
+    pg.click("#gtbPull")
+    pg.wait_for_function("document.getElementById('dlgTitle').textContent === 'Pull main'", timeout=10000)
+    msg = ev("document.getElementById('dlgMsg').textContent")
+    check("origin/main" in msg and "my-repo" in msg and "Remote:" in msg and "--ff-only" in msg, "confirmation: repository, branch ← upstream, remote")
+    shot("t2-pull-confirm")
+    pg.click("#dlgBtns button.primary")
+    pg.wait_for_function("document.getElementById('gtbPull').classList.contains('busy')", timeout=5000)
+    check(ev("document.getElementById('gtbPull').disabled"), "running: Pull disabled + spinner")
+    pg.wait_for_function("document.getElementById('toast').textContent.startsWith('pulled')", timeout=20000)
+    check(_g(A, "rev-parse", "HEAD") == _g(UP, "rev-parse", "HEAD"), f"pulled: HEAD = remote ({toast()})")
+    pg.unroute("**/api/git/pull")
+    pg.wait_for_function("!document.getElementById('gtbPull').classList.contains('busy') && !document.getElementById('gtbPull').disabled", timeout=5000)
+    pg.wait_for_function("monaco.editor.getModels().some(m => m.uri.path.endsWith('f.txt') && m.getValue().includes('two'))", timeout=15000)
+    check(True, "the open file shows the pulled text")
+    _put(A, "f.txt", "local edit\n")
+    _put(UP, "f.txt", "remote again\n")
+    _g(UP, "commit", "-q", "-am", "remote 2"); _g(UP, "push", "-q", "origin", "HEAD:main")
+    before = _g(A, "rev-parse", "HEAD")
+    pg.click("#gtbPull")
+    pg.wait_for_function("document.getElementById('dlgTitle').textContent === 'Pull main'", timeout=10000)
+    pg.click("#dlgBtns button.primary")
+    pg.wait_for_function("document.getElementById('toast').textContent.startsWith('pull stopped')", timeout=20000)
+    check("local changes" in toast() and _g(A, "rev-parse", "HEAD") == before, f"local change in the way: stopped, nothing changed ({toast()})")
+    pg.wait_for_function("STATE.git.open && STATE.git.tab === 'console'", timeout=5000)
+    pg.wait_for_function("document.querySelector('#gitWin [data-page=console] .gc-row pre.o')", timeout=8000)
+    check("would be overwritten" in ev("document.querySelector('#gitWin [data-page=console]').textContent"), "failure: the Console tab shows the git output")
+    ev("GitUI.toggleWindow(false)")
+
+    print("== top bar: Commit / Push requests (AgentO deep link)")
+    sent, launched, orig = [], [], (gitview.agento_handler, gitview._startfile, gitview.agento_path)
+    try:
+        gitview.agento_handler = lambda: None
+        gitview.agento_path = lambda p="": launched.append(p)  # never start the real AgentO from a test
+        ev("window._clip = []; navigator.clipboard.writeText = t => { _clip.push(t); return Promise.resolve(); }")
+        pg.wait_for_function("!document.getElementById('gtbCommit').disabled", timeout=10000)
+        pg.click("#gtbCommit")
+        pg.wait_for_selector(".gtb-dlg", timeout=5000)
+        dl = ev("document.querySelector('.gtb-dlg').textContent")
+        check("f.txt" in dl and "my-repo" in dl and "main" in dl, "commit request dialog: repository, branch, changed files")
+        pg.fill(".gtb-dlg .msg", "fix: something")
+        shot("t3-commit-request")
+        pg.click(".gtb-dlg [data-a=go]")  # default for now: the instruction on the clipboard (no deep link)
+        pg.wait_for_function("document.getElementById('toast').textContent.includes('commit 지시문을 복사했습니다')", timeout=10000)
+        clip = ev("_clip[_clip.length - 1] || ''")
+        check(clip.startswith("[ReadO → AgentO]") and "- f.txt" in clip and "fix: something" in clip and not sent and launched,
+              f"Commit (clipboard mode): instruction with files + message copied, no deep link ({toast()})")
+        pg.click("#gtbCommit")
+        pg.wait_for_selector(".gtb-dlg", timeout=5000)
+        ev("GitUI.useDeeplink = true")  # the next stage: agento://dispatch
+        pg.click(".gtb-dlg [data-a=go]")
+        pg.wait_for_function("document.getElementById('toast').textContent.includes('agento://')", timeout=10000)
+        check("지시문을 복사했습니다" in toast() and not sent, f"deep link on, no agento: handler → instruction copied ({toast()})")
+        gitview.agento_handler = lambda: "AgentO.exe %1"
+        gitview._startfile = lambda u: sent.append(u)
+        pg.click("#gtbCommit")
+        pg.wait_for_selector(".gtb-dlg", timeout=5000)
+        pg.fill(".gtb-dlg .msg", "fix: 한글 & more")
+        pg.click(".gtb-dlg [data-a=go]")
+        pg.wait_for_function("document.getElementById('toast').textContent.includes('commit 요청을 보냈습니다')", timeout=10000)
+        check(len(sent) == 1 and "kind=commit" in sent[0] and "msg=fix%3A%20%ED%95%9C%EA%B8%80%20%26%20more" in sent[0], f"commit request sent as a deep link ({sent[-1][:120] if sent else ''})")
+        _g(A, "checkout", "-q", "--", "f.txt")
+        _g(A, "fetch", "-q"); _g(A, "reset", "-q", "--hard", "origin/main")
+        _put(A, "h.txt", "h\n"); _g(A, "add", "h.txt"); _g(A, "commit", "-q", "-m", "local")
+        ev("GitUI.useDeeplink = false")
+        pg.wait_for_function("!document.getElementById('gtbPush').disabled", timeout=15000)
+        pg.click("#gtbPush")
+        pg.wait_for_function("document.getElementById('dlgTitle').textContent.startsWith('Push')", timeout=5000)
+        pg.click("#dlgBtns button.primary")
+        pg.wait_for_function("document.getElementById('toast').textContent.includes('push 지시문을 복사했습니다')", timeout=10000)
+        clip = ev("_clip[_clip.length - 1] || ''")
+        check("push" in clip and "force push는 하지 마" in clip and len(sent) == 1, "Push (clipboard mode): instruction copied, says no force")
+        ev("GitUI.useDeeplink = true")
+        pg.wait_for_function("document.querySelector('#gtbBranch .ab').textContent === '↑1' && !document.getElementById('gtbPush').disabled && document.getElementById('gtbCommit').disabled", timeout=15000)
+        check(True, "local commit: ↑1 shown, Push on, Commit off (clean)")
+        pg.click("#gtbPush")
+        pg.wait_for_function("document.getElementById('dlgTitle').textContent.startsWith('Push')", timeout=5000)
+        check("force push is never requested" in ev("document.getElementById('dlgMsg').textContent"), "push confirmation: no force")
+        pg.click("#dlgBtns button.primary")
+        pg.wait_for_function("document.getElementById('toast').textContent.includes('push 요청을 보냈습니다')", timeout=10000)
+        check(len(sent) == 2 and "kind=push" in sent[1] and "ahead=1" in sent[1] and _g(A, "rev-list", "--count", "origin/main..HEAD") == "1",
+              "push request sent (ahead=1); ReadO pushed nothing")
+    finally:
+        gitview.agento_handler, gitview._startfile, gitview.agento_path = orig
+        ev("GitUI.useDeeplink = false")
+    _g(A, "checkout", "-q", "-b", "topic")
+    pg.wait_for_function("document.querySelector('#gtbBranch .nm').textContent === 'topic'", timeout=15000)
+    check(ev("document.getElementById('gtbPull').disabled") and "no upstream" in ev("document.getElementById('gtbPull').title"), "branch without upstream: Pull disabled, tooltip says why")
+    check(not ev("document.getElementById('gtbPush').disabled"), "branch without upstream: Push request allowed (AgentO sets it up)")
+
+    print("== search palette: modes, % text search")
+    pg.click(".tb-search")
+    pg.wait_for_selector("#qoBg.show")
+    check("%text" in ev("document.getElementById('qoInput').placeholder") and ev("document.querySelectorAll('#qoModes .qo-mode').length") == 4,
+          "palette: placeholder + 4 mode tabs")
+    check(ev("document.querySelector('#qoModes .qo-mode.active').dataset.prefix") == "", "empty input: Files tab active")
+    pg.click("#qoModes .qo-mode[data-prefix='%']")
+    check(ev("document.getElementById('qoInput').value") == "%" and ev("document.querySelector('#qoModes .qo-mode.active').dataset.prefix") == "%", "% tab: prefix set, tab active")
+    pg.keyboard.type("remote again")
+    try:
+        pg.wait_for_function("_qoMode === 'text' && _qoItems.some(i => i.path === 'up/f.txt')", timeout=15000)
+    except Exception:
+        print("DEBUG", ev("[document.getElementById('qoInput').value, _qoMode, JSON.stringify(_qoItems).slice(0, 400), document.getElementById('qoList').textContent.slice(0, 300)]"))
+        print("DEBUG2", ev("fetch('/api/search?q=remote%20again&case=0&regex=0&word=0&glob=&scope=&ctx=0').then(r => r.text())")[:400])
+        raise
+    items = ev("_qoItems.map(i => i.label)")
+    check(items[0].startswith("Find in Files") and "up/f.txt:1" in items, f"% search: Find in Files row + matches ({items[:3]})")
+    shot("t4-palette-text")
+    first = ev("_qoItems[1].path")
+    pg.keyboard.press("Enter")
+    pg.wait_for_function(f"currentPath === '{first}'", timeout=10000)
+    check(True, "Enter: opens the match")
+    ev("openQO('%two')")
+    pg.wait_for_function("_qoMode === 'text' && _qoItems.length > 1", timeout=15000)
+    pg.keyboard.press("Control+Shift+F")
+    pg.wait_for_function("document.getElementById('fifBg').classList.contains('show')", timeout=5000)
+    check(ev("document.getElementById('fifQ').value") == "two" and not ev("document.getElementById('qoBg').classList.contains('show')"),
+          "Ctrl+Shift+F in % mode: Find in Files window with the same text")
+    ev("closeFIF()")
+    ev("openQO('>git')")
+    check(ev("document.querySelector('#qoModes .qo-mode.active').dataset.prefix") == ">", "> tab active for commands")
+    ev("closeQO()")
+
+    print("== top bar: narrow windows, dark theme")
+    ev("openFile('my-repo/f.txt')")
+    pg.wait_for_function("document.querySelector('#gtbBranch .nm').textContent === 'topic'", timeout=10000)
+    for w in (1100, 860, 640):
+        pg.set_viewport_size({"width": w, "height": 800})
+        time.sleep(0.4)
+        r = ev("""(() => { const bar = document.querySelector('.topbar'), n = document.querySelector('#gtbBranch .nm'), br = document.getElementById('gtbBranch').getBoundingClientRect();
+          return {over: bar.scrollWidth - bar.clientWidth, cls: bar.className, nm: getComputedStyle(n).display, bw: br.width, inside: br.right <= bar.getBoundingClientRect().right + 1,
+                  pull: document.getElementById('gtbPull').offsetParent !== null}; })()""")
+        check(r["over"] <= 1 and r["inside"] and r["pull"], f"{w}px: no overflow, Git group visible ({r['cls']}, branch {r['bw']:.0f}px, name {r['nm']})")
+        if w == 640:
+            shot("t5-narrow")
+    pg.set_viewport_size({"width": 1500, "height": 900})
+    ev("runCommand('view.theme')")
+    time.sleep(0.3)
+    dark = ev("""(() => { const n = document.querySelector('#gtbBranch .nm'), c = document.querySelector('#crumbs .crumb-repo');
+      return {dark: getTheme() === 'dark', nm: getComputedStyle(n).color, bar: getComputedStyle(document.querySelector('.topbar')).backgroundColor, chip: !!c}; })()""")
+    check(dark["dark"] and dark["nm"] != dark["bar"] and dark["chip"], f"dark theme: branch text {dark['nm']} on {dark['bar']}, chip shown")
+    shot("t6-dark")
+    ev("runCommand('view.theme')")
+    pg.close()
+
+
 def main():
     fx = os.path.realpath(sys.argv[1])
     shots = sys.argv[2] if len(sys.argv) > 2 else None
@@ -70,6 +297,12 @@ def main():
         pg.goto(url)
         pg.wait_for_function("typeof monaco !== 'undefined' && window.GitUI && document.querySelector('#tree .node')", timeout=30000)
         shot = lambda n: shots and pg.screenshot(path=os.path.join(shots, n + ".png"))
+        if os.environ.get("READO_UI_ONLY") == "toolbar":  # quick run of the top-bar section alone
+            toolbar_tests(b, url, tmp, errors, shots)
+            b.close()
+            srv.shutdown()
+            print(f"\n{'FAILED: ' + str(len(FAILS)) if FAILS else 'all passed'}")
+            sys.exit(1 if FAILS else 0)
 
         print("== commands / menu / keys")
         check(pg.evaluate("MENUS.some(m => m.label === 'Git')"), "Git menu in the menu bar")
@@ -78,7 +311,7 @@ def main():
             conf = pg.evaluate(f"keymapConflicts('{km}')")
             gitc = [c for c in conf if any(i.startswith("git.") for i in c["ids"])]
             check(not gitc, f"{km} keymap: no conflicts with git keys {gitc or ''}")
-        check(pg.evaluate("!!document.querySelector('#tbGroups [data-group=git] [data-cmd=\"git.toolwin\"]')"), "toolbar Git button")
+        check(pg.evaluate("!!document.querySelector('#tbGroups [data-group=git] #gtbBranch')"), "toolbar Git group (branch button)")
         print("== tool strip Git icon")
         check(not pg.evaluate("fetch('/api/git/info').then(r => r.json()).then(d => !!d.repo)"), "fixture root is not a repository (repositories below it)")
         strip_git_click(pg, "non-repo parent folder")
@@ -750,6 +983,8 @@ def main():
         check(rp.evaluate("fetch('/api/git/info').then(r => r.json()).then(d => !!d.repo)"), "basic/ is a repository")
         strip_git_click(rp, "repository folder")
         rp.close()
+        pg.close()  # it would keep polling fx repositories that are outside the next base folder
+        toolbar_tests(b, url, tmp, errors, shots)
         server.SETTINGS["base_dir"] = fx
         b.close()
     srv.shutdown()

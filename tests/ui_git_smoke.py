@@ -186,6 +186,94 @@ def find_dialog_tests(pg, ev, shot, base):
     pg.set_viewport_size({"width": 1500, "height": 900})
 
 
+def readonly_text_tests(pg, shot):
+    """Commit message / Console / diff header: selectable, copyable, searchable — under the desktop app's
+    page-wide user-select: none (pywebview, text_select off), injected here as the app does."""
+    ev = pg.evaluate
+    print("== read-only text: select / copy / find (desktop app CSS)")
+    pg.add_style_tag(content="body {-webkit-user-select: none; -khtml-user-select: none; -ms-user-select: none; user-select: none; cursor: default;}")
+    ev("window._clip = []; navigator.clipboard.writeText = t => { _clip.push(t); return Promise.resolve(); }")
+    clip = lambda: ev("_clip[_clip.length - 1] || ''")
+    ev("GitUI.toggleWindow(true)")
+    ev("document.querySelector('#gitWin .gw-repo').value = GitUI.G.repos.find(r => r.name === 'basic').root;"
+       "document.querySelector('#gitWin .gw-repo').dispatchEvent(new Event('change'))")
+    ev("GitUI.setTab('log')")
+    LOG = "#gitWin [data-page=log]"
+    pg.wait_for_selector(LOG + " .gl-row", timeout=20000)
+    pg.click(LOG + " .gl-row >> nth=0")
+    pg.wait_for_function(f"document.querySelector('{LOG} .gd-msg .subj') && GitUI.Log.detail", timeout=10000)
+    body = ev("GitUI.Log.detail.body")
+    check(ev(f"getComputedStyle(document.querySelector('{LOG} .gd-msg')).userSelect") == "text" and ev("getComputedStyle(document.body).userSelect") == "none",
+          "commit message user-select: text while the page is user-select: none")
+    bx = ev(f"(() => {{ const r = document.querySelector('{LOG} .gd-msg').getBoundingClientRect(); return [r.left, r.top]; }})()")
+    x, y = bx[0] + 12, bx[1] + 14
+    pg.mouse.move(x, y); pg.mouse.down(); pg.mouse.move(x + 220, y + 40, steps=8); pg.mouse.up()
+    sel = ev("String(getSelection())")
+    check(sel.startswith(body.split("\n")[0][:6]) and "\n" in sel, f"drag selects the message (subject + body) {sel[:40]!r}")
+    pg.keyboard.press("Control+c")
+    check(clip() == sel, "Ctrl+C copies the selection")
+    pg.mouse.click(x + 30, y + 3, button="right")
+    pg.wait_for_selector("#ctxMenu")
+    labels = ev("[...document.querySelectorAll('#ctxMenu .ctx-item')].map(r => r.dataset.label + (r.classList.contains('disabled') ? '(off)' : ''))")
+    check(labels == ["Copy", "Copy Commit Message", "Copy Revision Number", "Select All", "Find…"], f"right-click: Copy / Copy Commit Message / Copy Revision Number / Select All / Find ({labels})")
+    pg.click("#ctxMenu .ctx-item[data-label='Copy Commit Message']")
+    check(clip() == body, "Copy Commit Message: the whole message")
+    pg.mouse.click(x + 30, y + 3, button="right")
+    pg.click("#ctxMenu .ctx-item[data-label='Copy Revision Number']")
+    check(clip() == ev("GitUI.Log.detail.h"), "Copy Revision Number: the full hash")
+    pg.mouse.click(x + 30, y + 3)
+    pg.keyboard.press("Control+a")
+    sa = ev(f"(() => {{ const m = document.querySelector('{LOG} .gd-msg'), s = getSelection(); return {{in: m.contains(s.anchorNode) && m.contains(s.focusNode), t: String(s)}}; }})()")
+    check(sa["in"] and sa["t"].startswith(body.split("\n")[0]) and "copy hash" in sa["t"], "Ctrl+A: the whole message box, not the page")
+    print("== read-only text: Ctrl+F in the commit message")
+    pg.mouse.click(x + 30, y + 3)
+    pg.keyboard.press("Control+f")
+    pg.wait_for_selector(".rd-find input", timeout=3000)
+    pg.keyboard.type("body line")
+    time.sleep(0.2)
+    check(ev("document.querySelector('.rd-find .n').textContent") == "1/1" and ev("CSS.highlights.get('rd-find-cur').size") == 1, "Ctrl+F: find bar, match counted and highlighted")
+    shot("10-msg-find")
+    pg.keyboard.press("Escape")
+    check(not ev("!!document.querySelector('.rd-find')") and not ev("CSS.highlights.has('rd-find-cur')"), "Esc closes the find bar, highlights cleared")
+    pg.mouse.click(x + 30, y + 3)
+    pg.keyboard.press("Control+f")
+    pg.keyboard.type("body line")
+    pg.click(LOG + " .gl-row >> nth=1")
+    pg.wait_for_function("GitUI.Log.detail && GitUI.Log.detail.h === GitUI.Log.rows[1].c.h && document.querySelector('.rd-find .n').textContent === '1/1'"
+                         " && [...CSS.highlights.get('rd-find-cur')][0].startContainer.isConnected", timeout=8000)
+    check(True, "another commit selected: the open search runs again on its message")
+    ev("document.querySelector('.rd-find [data-a=close]').click()")
+    q = ev("fetch('/api/git/log?' + new URLSearchParams({repo: GitUI.G.repo.root, text: 'body line for 7', n: 10})).then(r => r.json()).then(d => d.commits.map(c => c.s))")
+    check(q == ["commit 7"], f"Log text filter searches the message body too (git log --grep) ({q})")
+
+    print("== read-only text: Console, diff header")
+    ev("GitUI.setTab('console')")
+    pg.wait_for_selector("#gitWin [data-page=console] .gc-row", timeout=8000)
+    cb = "#gitWin [data-page=console] .gw-scroll"
+    check(ev(f"getComputedStyle(document.querySelector('{cb}')).userSelect") == "text", "Console: selectable")
+    r0 = ev(f"(() => {{ const c = [...document.querySelectorAll('{cb} .gc-row .c')].pop(); c.scrollIntoView({{block: 'center'}});"
+            " const r = c.getBoundingClientRect(); return [r.left, r.top + r.height / 2, r.width]; })()")
+    pg.mouse.move(r0[0] + 2, r0[1]); pg.mouse.down(); pg.mouse.move(r0[0] + min(160, r0[2]), r0[1], steps=6); pg.mouse.up()
+    s1 = ev("String(getSelection())")
+    time.sleep(2.6)  # the Console polls every 2 s: no redraw without new entries
+    check(s1.startswith("git") and ev("String(getSelection())") == s1, f"Console: selection survives the 2 s refresh ({s1[:30]!r})")
+    pg.mouse.click(r0[0] + 4, r0[1], button="right")
+    labels = ev("[...document.querySelectorAll('#ctxMenu .ctx-item')].map(r => r.dataset.label)")
+    check(labels[:3] == ["Copy", "Copy Command", "Copy All"] or labels[:2] == ["Copy", "Copy Command"], f"Console right-click: Copy / Copy Command / Copy All ({labels})")
+    pg.click("#ctxMenu .ctx-item[data-label='Copy Command']")
+    check(clip().startswith("git "), "Copy Command")
+    ev("GitUI.setTab('changes')")
+    pg.wait_for_selector("#gitWin [data-page=changes] .gt-row:has-text('app.py')", timeout=20000)
+    pg.click("#gitWin [data-page=changes] .gt-row:has-text('app.py')")
+    pg.wait_for_function("GitUI.Changes.pane.spec && GitUI.Changes.pane.spec.path === 'src/app.py'", timeout=10000)
+    hd = "#gitWin [data-page=changes] .gdm-t"
+    check(ev(f"getComputedStyle(document.querySelector('{hd} .gdm-path')).userSelect") == "text", "diff header: path selectable")
+    pg.click(hd + " .gdm-path", button="right")
+    pg.click("#ctxMenu .ctx-item[data-label='Copy Path']")
+    check(clip() == "src/app.py", "diff header right-click: Copy Path")
+    pg.keyboard.press("Escape")
+
+
 def toolbar_tests(b, url, tmp, errors, shots):
     """Top bar: Git group (branch, Pull, Commit / Push requests), repository chip, palette modes, settings icon."""
     import gitview
@@ -1065,6 +1153,7 @@ def main():
         finally:
             gitview.DIFFWIN.close_all()
             gitview.DIFFWIN.backend = None
+        readonly_text_tests(pg, shot)
         print("== tool strip Git icon: a repository folder open")
         server.SETTINGS["base_dir"] = os.path.join(fx, "basic")
         rp = b.new_page(viewport={"width": 1200, "height": 800})

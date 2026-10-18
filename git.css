@@ -285,3 +285,22 @@ body.theme-dark .gtb-dlg .warn { color: #f0c27a; }
 .gc-row:has(.o) { flex-wrap: wrap; }
 .gc-row .o { flex-basis: 100%; margin: 0 0 4px 70px; padding: 2px 8px; white-space: pre-wrap; color: var(--text-dim);
   border-left: 2px solid var(--border-strong); font: 11px var(--mono); }
+
+/* read-only text (commit message, Console, diff headers): selectable in the desktop app too,
+   where pywebview makes the page user-select: none */
+.rd-text { user-select: text; -webkit-user-select: text; cursor: text; }
+.rd-text:focus { outline: none; }
+.rd-text a, .rd-text button { cursor: pointer; }
+.gdw .gdm-head .rd-text { cursor: inherit; }  /* the floating window's header drags the window */
+.rd-find { position: absolute; z-index: 5; display: flex; align-items: center; gap: 3px; padding: 3px 4px 3px 6px;
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+.rd-find input { width: 170px; height: 22px; box-sizing: border-box; padding: 0 6px; font: 12px var(--mono); color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px; outline: none; }
+.rd-find input:focus { border-color: var(--accent); }
+.rd-find.none input { border-color: var(--g-con, #d1242f); }
+.rd-find .n { min-width: 54px; font: 11px var(--mono); color: var(--text-mute); text-align: center; }
+.rd-find button { width: 22px; height: 22px; padding: 0; border: 1px solid transparent; border-radius: 4px; background: transparent;
+  color: var(--text-dim); cursor: pointer; font-size: 12px; }
+.rd-find button:hover { background: var(--hover); color: var(--text); }
+::highlight(rd-find) { background-color: rgba(250, 204, 21, .45); color: inherit; }
+::highlight(rd-find-cur) { background-color: #f59e0b; color: #111; }

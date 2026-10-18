@@ -22,6 +22,8 @@
   html, body { margin: 0; height: 100%; }
   body { display: flex; flex-direction: column; background: var(--panel); color: var(--text); font: 13px var(--sans); overflow: hidden; }
   .gdm-head { cursor: default; }
+  /* path · revision · description: selectable (pywebview makes the page user-select: none); Ctrl+C copies */
+  .gdm-t span { user-select: text; -webkit-user-select: text; cursor: text; }
   .gdm-head .sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 2px; }
   .gdm-head button.on { border-color: var(--accent); color: var(--accent); }
   .toast { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); padding: 6px 12px; border-radius: 6px;

@@ -124,6 +124,128 @@ function dirOf(p) { const i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0,
 function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
 async function copy(text, what) { await copyText(text, what); }
 
+// ---------- read-only text: select, copy, find ----------
+// The desktop app's WebView (pywebview, text_select off) makes the whole page unselectable and has no
+// built-in context menu or Ctrl+F. Commit messages, the Console and diff headers opt back in
+// (.rd-text: user-select: text) and get Copy / Select All / Find here. readable(box, extra) once per box;
+// extra(e) -> more menu items for that right-click.
+function selectionIn(box) {
+  const s = getSelection();
+  return s && !s.isCollapsed && box.contains(s.anchorNode) && box.contains(s.focusNode) ? String(s) : '';
+}
+function selectAllIn(box) {
+  const r = document.createRange();
+  r.selectNodeContents(box);
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+}
+function readable(box, extra, opts) {
+  if (box._readable) return;
+  box._readable = true;
+  box.classList.add('rd-text');
+  if (box.tabIndex < 0 && !box.hasAttribute('tabindex')) box.tabIndex = -1;  // clicks focus it: Ctrl+C / A / F land here
+  box.addEventListener('contextmenu', e => {
+    if (e.target.closest('a, button, input')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const sel = selectionIn(box);
+    showMenu(e.clientX, e.clientY, [
+      { label: 'Copy', hint: 'Ctrl+C', disabled: !sel, run: () => copyQuiet(sel).then(() => showToast('copied')) },
+      ...(extra ? extra(e) : []),
+      'sep',
+      { label: 'Select All', hint: 'Ctrl+A', run: () => { box.focus(); selectAllIn(box); } },
+      ...(opts && opts.find === false ? [] : [{ label: 'Find…', hint: 'Ctrl+F', run: () => TextFind.open(box) }]),
+    ]);
+  });
+  box.addEventListener('keydown', e => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.target !== box) return;
+    const k = e.key.toLowerCase();
+    if (k === 'c') { const sel = selectionIn(box); if (sel) { e.preventDefault(); e.stopPropagation(); copyQuiet(sel); } }
+    else if (k === 'a') { e.preventDefault(); e.stopPropagation(); selectAllIn(box); }
+    else if (k === 'f' && !(opts && opts.find === false)) { e.preventDefault(); e.stopPropagation(); TextFind.open(box); }
+  });
+}
+// Ctrl+F in a read-only text box: a small find bar over its top right corner; matches are painted with
+// the CSS Custom Highlight API (no DOM change, the selection stays); Enter / F3 next, Shift+Enter previous,
+// Esc closes. The box may be re-rendered (another commit selected): the search runs again.
+const TextFind = {
+  box: null, bar: null, ranges: [], cur: -1, mo: null,
+  open(box) {
+    if (this.box !== box) this.close();
+    this.box = box;
+    if (!this.bar) {
+      const bar = this.bar = el('div', 'rd-find');
+      bar.innerHTML = '<input placeholder="find in text" spellcheck="false"><span class="n"></span>' +
+        '<button data-a="prev" title="previous (Shift+Enter)">↑</button><button data-a="next" title="next (Enter / F3)">↓</button><button data-a="close" title="close (Esc)">✕</button>';
+      const inp = bar.querySelector('input');
+      inp.addEventListener('input', () => this.run(true));
+      inp.addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'Escape') { e.preventDefault(); this.close(true); }
+        else if (e.key === 'Enter' || e.key === 'F3') { e.preventDefault(); this.step(e.shiftKey ? -1 : 1); }
+      });
+      bar.addEventListener('mousedown', e => { if (e.target.tagName === 'BUTTON') e.preventDefault(); });
+      bar.addEventListener('click', e => {
+        const a = e.target.dataset && e.target.dataset.a;
+        if (a === 'close') this.close(true); else if (a) this.step(a === 'prev' ? -1 : 1);
+      });
+    }
+    const host = box.parentElement;
+    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+    host.appendChild(this.bar);
+    this.bar.style.top = (box.offsetTop + 4) + 'px';
+    this.bar.style.right = (host.clientWidth - box.offsetLeft - box.clientWidth + 6) + 'px';
+    if (this.mo) this.mo.disconnect();
+    this.mo = new MutationObserver(() => this.run(true));
+    this.mo.observe(box, { childList: true, subtree: true, characterData: true });
+    const inp = this.bar.querySelector('input'), sel = selectionIn(box).trim();
+    if (sel && !sel.includes('\n')) inp.value = sel;
+    inp.focus(); inp.select();
+    this.run(true);
+  },
+  run(first) {
+    const q = this.bar.querySelector('input').value.toLowerCase();
+    this.ranges = [];
+    if (q) {
+      const walk = document.createTreeWalker(this.box, NodeFilter.SHOW_TEXT);
+      for (let n; (n = walk.nextNode());) {
+        const t = n.data.toLowerCase();
+        for (let i = t.indexOf(q); i >= 0; i = t.indexOf(q, i + q.length)) {
+          const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + q.length); this.ranges.push(r);
+        }
+      }
+    }
+    this.cur = this.ranges.length ? 0 : -1;
+    this.paint(first);
+  },
+  step(d) {
+    if (!this.ranges.length) return;
+    this.cur = (this.cur + d + this.ranges.length) % this.ranges.length;
+    this.paint(true);
+  },
+  paint(reveal) {
+    const n = this.bar.querySelector('.n'), q = this.bar.querySelector('input').value;
+    n.textContent = !q ? '' : this.ranges.length ? `${this.cur + 1}/${this.ranges.length}` : 'no matches';
+    this.bar.classList.toggle('none', !!q && !this.ranges.length);
+    if (window.CSS && CSS.highlights && window.Highlight) {
+      CSS.highlights.set('rd-find', new Highlight(...this.ranges.filter((r, i) => i !== this.cur)));
+      CSS.highlights.set('rd-find-cur', new Highlight(...(this.cur >= 0 ? [this.ranges[this.cur]] : [])));
+    }
+    const r = this.cur >= 0 && this.ranges[this.cur];
+    if (reveal && r) {
+      const rb = r.getBoundingClientRect(), bb = this.box.getBoundingClientRect();
+      if (rb.top < bb.top + 28 || rb.bottom > bb.bottom - 4) this.box.scrollTop += rb.top - bb.top - bb.height / 3;
+    }
+  },
+  close(refocus) {
+    if (this.mo) { this.mo.disconnect(); this.mo = null; }
+    if (window.CSS && CSS.highlights) { CSS.highlights.delete('rd-find'); CSS.highlights.delete('rd-find-cur'); }
+    if (this.bar) this.bar.remove();
+    const box = this.box;
+    this.box = null; this.ranges = []; this.cur = -1;
+    if (refocus && box) box.focus();
+  },
+};
+
 // ---------- AgentO hand-off (instructions; ReadO never writes) ----------
 function repoLine(repo) {
   const b = G.status && G.status.branch && G.repo && repo && G.repo.root === repo.root ? G.status.branch.head : (repo && repo.branch) || '';
@@ -386,8 +508,17 @@ function dwDrag(handle, win, mode) {
     handle.addEventListener('pointercancel', up, { once: true });
   });
 }
-function buildDiffWin() {
-  const bg = el('div', 'gdw');
+// a diff header (path · revision · description): selectable, and copied from its right-click menu
+function readableHead(head) {
+  const t = head.querySelector('.gdm-t');
+  const part = c => (t.querySelector(c).textContent || '').trim();
+  readable(t, () => [
+    { label: 'Copy Path', disabled: !part('.gdm-path'), run: () => copy(part('.gdm-path'), 'path') },
+    { label: 'Copy Revision Number', disabled: !part('.gdm-hash'), run: () => copy(part('.gdm-hash'), 'revision') },
+    { label: 'Copy Description', disabled: !part('.gdm-sub'), run: () => copy(part('.gdm-sub'), 'description') },
+  ], { find: false });
+}
+function buildDiffWin() {  const bg = el('div', 'gdw');
   bg.tabIndex = -1;
   bg.innerHTML = `<div class="gdm-head" title="drag to move · double-click: maximize / restore">
       <div class="gdm-t"><span class="gdm-path"></span><span class="gdm-hash"></span><span class="gdm-sub"></span></div>
@@ -415,6 +546,7 @@ function buildDiffWin() {
   });
   head.addEventListener('dblclick', e => { if (!e.target.closest('button')) dwMax(win); });
   dwDrag(head, win, 'move');
+  readableHead(head);
   bg.querySelectorAll('.gdw-rz').forEach(h => dwDrag(h, win, h.dataset.d));
   bg.addEventListener('keydown', e => {
     const inEditor = e.target.closest && e.target.closest('.monaco-editor');
@@ -445,6 +577,7 @@ function DiffPane(container, opts) {
     <div class="gdm-body"><div class="gdm-ed"></div><div class="gdm-msg"></div></div>`;
   const v = { inline: true, bg: container, ed: null, own: [], items: [], idx: 0, gen: 0, spec: null, ident: '', opts: opts || {} };
   DV.add(v);
+  readableHead(container.querySelector('.gdm-head'));
   container.querySelector('.gdm-head').addEventListener('click', e => {
     const a = e.target.dataset && e.target.dataset.a;
     if ((a === 'prevChange' || a === 'nextChange') && v.ed) v.ed.goToDiff(a === 'nextChange' ? 'next' : 'previous');
@@ -1170,6 +1303,12 @@ function LogView(page, opts) {
       applyLogCols(); saveState();
     });
     V.head.addEventListener('contextmenu', e => { e.preventDefault(); logColMenu(e.clientX, e.clientY); });
+    // the commit message / multi-selection summary: select, copy, Ctrl+F
+    readable(V.msg, () => V.detail ? [
+      { label: 'Copy Commit Message', run: () => copy(V.detail.body, 'commit message') },
+      { label: 'Copy Revision Number', run: () => copy(V.detail.h, 'revision') },
+    ] : []);
+    readable(V.sum);
     V.list.addEventListener('scroll', () => requestAnimationFrame(V.paint));
     new ResizeObserver(() => V.paint()).observe(V.list);
     // Ctrl+click: toggle · Shift+click: range from the anchor (Ctrl+Shift: added) · right-click keeps a multi-selection
@@ -1658,6 +1797,7 @@ const Stash = {
         { label: 'Pop… (AgentO)', run: () => agentDialog('stashPop', s) },
         { label: 'Drop… (AgentO)', run: () => agentDialog('stashDrop', s) },
         'sep', { label: 'Copy Hash', run: () => copy(s.h, 'revision') },
+        { label: 'Copy Message', run: () => copy(s.s, 'stash message') },
       ]);
     });
     this.built = true;
@@ -1692,6 +1832,12 @@ const Console_ = {
     p.innerHTML = `<div class="gw-col" style="flex:1"><div class="gw-bar"><button data-a="clear">clear</button><span class="sum">git commands ReadO ran (newest last) — all read-only except the toolbar Pull</span></div><div class="gw-scroll"></div></div>`;
     this.box = p.querySelector('.gw-scroll');
     p.querySelector('.gw-bar').addEventListener('click', e => { if (e.target.dataset.a === 'clear') { this.entries = []; this.render(); } });
+    readable(this.box, e => {
+      const en = this.entry(e.target.closest('.gc-row'));
+      return (en ? [{ label: 'Copy Command', run: () => copy(en.cmd, 'command') }] : [])
+        .concat(en && en.out ? [{ label: 'Copy Output', run: () => copy(en.out, 'output') }] : [])
+        .concat([{ label: 'Copy All', run: () => copy(this.entries.map(x => x.cmd + (x.out ? '\n' + x.out : x.err ? '\n' + x.err : '')).join('\n'), 'console') }]);
+    });
     this.built = true;
   },
   show() {
@@ -1702,16 +1848,29 @@ const Console_ = {
   },
   async load() {
     const d = await api('console', { since: this.since });
-    for (const e of d.entries || []) { this.entries.push(e); this.since = Math.max(this.since, e.id); }
+    const fresh = d.entries || [];
+    for (const e of fresh) { this.entries.push(e); this.since = Math.max(this.since, e.id); }
     if (this.entries.length > 500) this.entries.splice(0, this.entries.length - 500);
-    this.render();
+    // new commands are appended, old rows dropped from the top: what the user selected stays selected
+    if (!this.box.querySelector('.gc-row')) this.render();
+    else if (fresh.length) this.append(fresh);
+  },
+  rowHtml(e) {
+    return `<div class="gc-row${e.rc ? ' err' : ''}" data-id="${e.id}"><span class="t">${esc(new Date(e.t * 1000).toLocaleTimeString())}</span>` +
+      `<span class="ms">${e.ms} ms</span><span class="c" title="${esc(e.cwd)}">${esc(e.cmd)}</span>${e.err && !e.out ? `<span class="e">${esc(e.err)}</span>` : ''}` +
+      `${e.out ? `<pre class="o">${esc(e.out)}</pre>` : ''}</div>`;
+  },
+  entry(row) { return row && this.entries.find(x => x.id === +row.dataset.id); },
+  append(list) {
+    const atEnd = this.box.scrollTop + this.box.clientHeight >= this.box.scrollHeight - 30;
+    this.box.insertAdjacentHTML('beforeend', list.map(e => this.rowHtml(e)).join(''));
+    const rows = this.box.querySelectorAll('.gc-row');
+    for (let i = 0; i < rows.length - this.entries.length; i++) rows[i].remove();
+    if (atEnd) this.box.scrollTop = this.box.scrollHeight;
   },
   render() {
     const atEnd = this.box.scrollTop + this.box.clientHeight >= this.box.scrollHeight - 30;
-    this.box.innerHTML = this.entries.map(e => `<div class="gc-row${e.rc ? ' err' : ''}"><span class="t">${esc(new Date(e.t * 1000).toLocaleTimeString())}</span>` +
-      `<span class="ms">${e.ms} ms</span><span class="c" title="${esc(e.cwd)}">${esc(e.cmd)}</span>${e.err && !e.out ? `<span class="e">${esc(e.err)}</span>` : ''}` +
-      `${e.out ? `<pre class="o">${esc(e.out)}</pre>` : ''}</div>`).join('') ||
-      '<div class="gw-empty">no git commands yet</div>';
+    this.box.innerHTML = this.entries.map(e => this.rowHtml(e)).join('') || '<div class="gw-empty">no git commands yet</div>';
     if (atEnd) this.box.scrollTop = this.box.scrollHeight;
   },
 };
@@ -1920,7 +2079,11 @@ function blameMenu(p, line, x, y) {
   if (at && at.c && !at.c.uncommitted) {
     items.push({ label: `Show Diff (${short(at.c.h)})`, run: () => openBlameCommit(at.repo, at.c, at.rel) },
       { label: 'Show Commit in Git Log', run: () => showGitCommit(at.repo, at.c.h) },
-      { label: 'Copy Revision Number', run: () => copy(at.c.h, 'revision') }, 'sep');
+      { label: 'Copy Revision Number', run: () => copy(at.c.h, 'revision') },
+      { label: 'Copy Commit Message', run: async () => {  // the hover tooltip follows the mouse, so it is copied from here
+        const body = _tipBody.has(at.c.h) ? _tipBody.get(at.c.h) : (await api('commit', { repo: at.repo.root, rev: at.c.h }, 'blameCopy')).body;
+        if (body != null) copy(body, 'commit message'); else showToast('could not read the commit message', true);
+      } }, 'sep');
   }
   items.push(G.blame.has(doc.key) ? { label: 'Close Annotations', run: () => clearBlame(doc) }
                                   : { label: 'Annotate with Git Blame', run: () => toggleBlame(true, doc) });

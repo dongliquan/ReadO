@@ -137,6 +137,12 @@ Changes since 0.1.0, not yet given a version number.
 - The breadcrumb shows the repository folder as a chip; the settings gear moved to the bottom of the tool strip.
 - Fixed: the Git icon on the tool strip did nothing when the open folder holds repositories but is not one itself;
   it now opens the Git tool window like the Git menu.
+- Fixed: the commit message under Log / History could not be selected, copied or searched in the desktop app
+  (its WebView turns text selection off page-wide). It now selects with the mouse, copies with `Ctrl+C`, and has a
+  right-click menu (Copy · Copy Commit Message · Copy Revision Number · Select All · Find…) and a `Ctrl+F` find bar
+  that highlights matches and follows the selected commit. The same for the Console (which no longer redraws, and
+  drops the selection, every 2 seconds) and the diff headers (Copy Path / Revision / Description); Blame and Stash
+  menus gain Copy Commit Message / Copy Message. The Log text filter already searched message bodies (`git log --grep`).
 
 ### Editor
 

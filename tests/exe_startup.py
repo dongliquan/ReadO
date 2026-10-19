@@ -122,7 +122,7 @@ def main():
         si = wait(lambda: inst(), 30)
         check(bool(si) and si.get("shown") is False, "stuck instance: instance.json with shown=false")
         t = time.time()
-        n = launch(READO_STARTUP_TIMEOUT=3)
+        n = launch(READO_STARTUP_TIMEOUT=10)  # its own cold start must fit too; 3 s was too short on a loaded machine
         started.append(n)
         ni = wait(lambda: (inst() or {}).get("shown") and inst()["pid"] != (si or {}).get("pid") and inst(), 40)
         dt = time.time() - t

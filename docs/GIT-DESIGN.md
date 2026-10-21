@@ -151,7 +151,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 | <span class="cn">3</span> | 쓰기 조작은 **"AgentO로 보내기"** 액션으로 전달. 기본 = 프롬프트 클립보드 복사 + AgentO 포커스, 옵션 = AgentO 데몬 WS 브리지(실험) | AgentO에 외부 진입점(딥링크·argv)이 없음 → 무변경으로 확실한 경로는 클립보드뿐 |
 | <span class="cn">4</span> | 로그 그래프는 `git log --graph` 출력이 아니라 **`--format` 파싱 + 프런트 JS 레인 계산**(VS Code SCM Graph 방식, MIT) | 페이지 단위 이어붙이기·가상 스크롤과 맞음 |
 | <span class="cn">5</span> | 새 코드는 **별도 파일**(`gitview.py`, `git.js`/`git.css`)로 두고 기존 파일에는 등록 훅만 추가 | 에디터 구현 세션과 `server.py`·`source.html` 동시 수정 충돌 최소화 |
-| <span class="cn">2a</span> | **예외(2026-10-16, 매니저 결정)**: 툴바 **Pull만** ReadO가 직접 실행한다. fetch 후 `merge --ff-only`만 하고(= `git pull --ff-only`), 병합 커밋·rebase·autostash는 하지 않으며 fast-forward가 안 되면 아무것도 바꾸지 않고 멈춘다. Commit·Push는 계속 AgentO 담당이며, [§14](#cat-14) 딥링크로 요청한다 | ReadO는 보기 중심이고, 최신 코드를 받아 보는 일만 바로 할 수 있게 함 |
+| <span class="cn">2a</span> | **예외(2026-10-16, 매니저 결정; 2026-10-21 확장)**: 최신 소스를 받아 보는 **Pull, Fetch, 브랜치 Checkout**만 ReadO가 직접 실행한다([§14.4](#sec-14-4)). Pull은 fetch 후 `merge --ff-only`만 하고(= `git pull --ff-only`), 병합 커밋·rebase·autostash는 하지 않으며 fast-forward가 안 되면 아무것도 바꾸지 않고 멈춘다. Commit·Push는 계속 AgentO 담당이며, [§14](#cat-14) 딥링크로 요청한다 | ReadO는 보기 중심이고, 최신 코드를 받아 보는 일만 바로 할 수 있게 함 |
 | <span class="cn">6</span> | IntelliJ에서 **가져올 것**: Log 3단(브랜치 트리·그래프 표·상세+파일 트리), 필터 바, Local Changes, diff, Annotate(blame), 파일 History. **뺄 것**: Commit/Push 대화상자, Shelf/Stash 조작, 충돌 해결 3-way 머지, 인터랙티브 rebase, 원격 관리 | 가벼운 뷰어 철학 + 쓰기는 AgentO |
 
 ---
@@ -321,7 +321,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 ## 5.5 제외 (ReadO에 넣지 않음)
 
-stage/unstage · commit/amend · rollback · checkout · 브랜치 생성/삭제 · fetch/pull/push · merge/rebase · 인터랙티브 rebase · cherry-pick/revert 실행 · stash 생성/적용 · 3-way 충돌 해결 UI · 원격·태그 관리 · 자격 증명 처리. → 전부 G2-1 지시문으로 AgentO에 넘긴다.
+stage/unstage · commit/amend · rollback · checkout(단, 브랜치 이동은 2026-10-21부터 ReadO가 직접 — §14.4) · 브랜치 생성/삭제 · push(fetch·pull은 ReadO 직접 — 결정 2a) · merge/rebase · 인터랙티브 rebase · cherry-pick/revert 실행 · stash 생성/적용 · 3-way 충돌 해결 UI · 원격·태그 관리 · 자격 증명 처리. → 전부 G2-1 지시문으로 AgentO에 넘긴다.
 
 ---
 
@@ -712,7 +712,7 @@ Ctrl+K·Ctrl+Shift+K는 실제 커밋이 아니라 **지시문 미리보기 대�
 | 항목 | 내용 |
 |---|---|
 | 대상 저장소 | 활성 파일이 속한 저장소(`/api/git/info?path=`, 폴더별 60초 캐시)다. 열린 파일이 없으면 Git 도구창에서 고른 저장소를 쓴다 |
-| 브랜치 버튼 | 브랜치 아이콘, 브랜치 이름(13px 굵게, 말줄임), ↑ahead ↓behind(0이면 숨김)를 보여 준다. 클릭하면 Git 도구창 Log 탭이 그 저장소로 열린다. 우클릭은 브랜치 팝업이다. 툴팁에는 저장소, upstream, 경로를 보여 준다 |
+| 브랜치 버튼 | 브랜치 아이콘, 브랜치 이름(13px 굵게, 말줄임), ↑ahead ↓behind(0이면 숨김)를 보여 준다. 클릭하면 브랜치 팝업([§14.4](#sec-14-4))이 열린다. 우클릭하면 Git 도구창 Log 탭이 그 저장소로 열린다(2026-10-21에 클릭·우클릭을 바꿨다). 툴팁에는 저장소, upstream, 경로를 보여 준다 |
 | Pull ↓ | ReadO가 직접 실행한다(§1 결정 2a). 비활성 조건은 git 없음, 저장소 아님, detached, upstream 없음, merge·rebase 진행 중, 실행 중이다 |
 | Commit ✓ · Push ↑ | AgentO 요청 버튼이다. 점선 테두리와 `A` 표시로 Pull과 구분하고, 툴팁은 "AgentO에 요청(head coach에게 전달)"이다. Commit은 대상 파일 목록(Local Changes에서 체크한 파일, 없으면 변경 전부)과 선택 입력인 메시지 초안을 받는다. Push는 확인창을 거친다. 지금은 두 버튼 모두 지시문을 복사하고 AgentO를 띄운다(토스트: "AgentO에 보낼 commit 지시문을 복사했습니다"). Commit은 변경 파일이 없으면, Push는 ahead 0이면(upstream이 있을 때) 비활성이다. git commit·push를 실행하는 코드는 없다 |
 | 새로고침 | 활성 파일이 바뀌면 바로, 그 밖에는 4초마다 fingerprint를 확인한다. 바뀌었거나 8초가 지나면 status를 다시 읽는다. 창 포커스, pull, 요청 후에는 즉시 갱신하고, 같은 저장소면 Log·Local Changes·상태바도 갱신한다 |
@@ -729,8 +729,27 @@ Ctrl+K·Ctrl+Shift+K는 실제 커밋이 아니라 **지시문 미리보기 대�
 | 실행 | `POST /api/git/pull {repo, unsaved[], allow_unsaved}`(`write_api`: CSRF 토큰, Host·Origin 검사, `repo_of` 경로 검증). `git fetch <remote>`를 실행한 뒤 HEAD와 `@{upstream}`을 비교한다. 같거나 upstream이 HEAD의 조상이면 "Already up to date"다. HEAD가 upstream의 조상이 아니면 `non_ff`로 멈춘다 |
 | 저장 안 된 편집 | 들어올 파일(`diff-tree HEAD..upstream`)과 페이지의 저장 안 된 파일이 겹치면 `need_confirm: "unsaved"`로 멈추고 다시 묻는다 |
 | 병합 | `git merge --ff-only <fetch한 sha>`를 실행한다. 로컬 변경을 덮어쓰게 되면 git이 거부하므로(`local_changes`) 아무것도 바뀌지 않는다 |
-| 제한 | 단계마다 60초 타임아웃이 있다. `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, 빈 `GIT_ASKPASS`를 쓰고, 자격 증명이 필요하면 `auth` 오류로 안내한다. hooks는 끄고(`core.hooksPath=NUL`), 저장소별 pull 잠금을 건다(`busy`). 허용 명령은 `PULL_CMDS={fetch, merge}`이고 `pull()`만 쓰며, `run()`은 여전히 읽기 전용만 허용한다 |
-| 결과 | 성공·실패 토스트를 띄운다. 명령과 출력은 Console 탭에 기록되고(`out` 필드), 실패하면 Console 탭이 열린다 |
+| 제한 | 단계마다 60초 타임아웃이 있다. `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, 빈 `GIT_ASKPASS`를 쓰고, 자격 증명이 필요하면 `auth` 오류로 안내한다. hooks는 끄고(`core.hooksPath=NUL`), 저장소별 쓰기 잠금(pull·fetch·checkout 공용)을 건다(`busy`). 허용 명령은 `WRITE_CMDS={fetch, merge, switch}`이고 `pull()`·`fetch()`·`checkout()`만 고정 옵션으로 쓰며, `run()`은 여전히 읽기 전용만 허용한다 |
+| 결과 | 성공(커밋·파일 수)과 이미 최신은 토스트로 알린다. 거부·실패(비FF, 로컬 변경, 인증, merge·rebase 진행 중)는 대화상자에 이유, ReadO가 merge·rebase·강제 실행을 하지 않는다는 안내, git 출력 끝부분을 보여 주고 [Stash Changes… (AgentO)]·[show Console]을 제공한다. 명령과 출력은 Console 탭에 기록된다(`out` 필드) |
+| 실행 위치 | 툴바 Pull, Git 도구창 머리의 `↓ Pull`, 브랜치 팝업, Git 메뉴·팔레트 `Pull (fast-forward only)` |
+| 성공 뒤 갱신 | 서버: status·refs 캐시를 비우고 파일 목록과 ctags 인덱스를 백그라운드로 다시 만든다(`server.source_changed`). 페이지(`refreshSource`): 열린 파일 중 수정 안 된 파일은 다시 읽고, 수정 중인 파일은 덮어쓰지 않고 "changed on disk — saving will ask"로 표시한다. 디스크에서 없어진 파일 탭은 삭제됨으로 표시한다. 파일 트리를 다시 그리고, 변경 줄 표시·상태바 브랜치, Git 도구창, 툴바도 갱신한다 |
+
+<a id="sec-14-4"></a>
+
+## 14.4 Fetch · 브랜치 Checkout (2026-10-21)
+
+| 항목 | 내용 |
+|---|---|
+| 브랜치 팝업 | 툴바 브랜치 칩 클릭, 상태바 브랜치, Git 도구창 머리의 `⎇ 브랜치` 버튼, Git 메뉴 `Branches…`에서 연다. 맨 위에 현재 브랜치(`Current: main → origin/main ↑1 ↓0`, detached·merge 상태 포함), 이어서 Pull·Fetch·Show Log·New Branch(AgentO)·Push(AgentO), **Local**·**Remote** 목록이 있다. 위쪽 입력란으로 거른다. 현재 브랜치는 강조하고 `✓ current`, 로컬 브랜치는 ↑↓와 upstream gone을 보여 준다. 원격 브랜치에는 추적 중인 로컬 브랜치(`local main`) 또는 `new local branch`를 표시한다. 고르면 바로 checkout한다 |
+| Checkout API | `POST /api/git/checkout {repo, ref, unsaved[], allow_unsaved}`(`write_api`, `repo_of`). ref는 `refs/heads/x` 또는 `refs/remotes/<원격>/x`만 받고, 실제로 있는 ref인지 `for-each-ref` 결과와 대조한다. 그 밖(태그, HEAD, 옵션 모양, 없는 브랜치)은 `bad_arg`(400)다 |
+| 로컬 브랜치 | `git switch --no-guess x` |
+| 원격 전용 브랜치 | 원격 이름(가장 긴 일치)을 떼어 로컬 이름을 정하고 `git switch --no-guess --create x --track <원격>/x`로 추적 브랜치를 만들며 이동한다. 같은 이름의 로컬 브랜치가 그 원격 브랜치를 이미 추적하면 그 브랜치로 이동한다. 다른 것을 추적하거나 추적하지 않으면 `local_exists`로 멈추고, 화면에서 그 로컬 브랜치로 갈지 묻는다(reset·rename은 하지 않는다) |
+| 안전장치 | 강제 옵션(`-f`, `--discard-changes`, `--merge`)은 쓰지 않는다. 로컬 변경이 걸리면 git이 거부하고 아무것도 바뀌지 않는다(`local_changes`). 대화상자에 git 메시지를 그대로 보여 주고 stash를 안내한다(Stash Changes… → AgentO). merge·rebase 진행 중이면 `repo_busy`로 실행하지 않는다 |
+| 저장 안 된 편집 | 그 저장소에 저장 안 된 편집이 있으면 checkout 전에 파일 목록과 함께 [save all and check out]·[cancel]을 묻는다. 저장하면 로컬 변경이 되므로 git이 가져가거나 거부한다. 서버도 바뀔 파일과 `unsaved`가 겹치면 `need_confirm`으로 멈춘다 |
+| Fetch API | `POST /api/git/fetch {repo}`: `git fetch --prune <현재 브랜치의 원격>`(원격이 없으면 git 기본값). 작업 트리와 HEAD는 바뀌지 않는다. 결과 토스트에 upstream 기준 ↑↓를 보여 준다. Git 도구창 `Fetch`, 브랜치 팝업, Git 메뉴에서 실행한다 |
+| 갱신 | checkout 성공 뒤에는 Pull과 같다([§14.2](#cat-14) 성공 뒤 갱신). 없어진 파일 탭은 삭제됨으로 표시하고, 새 파일은 트리에 나타난다 |
+| 명령 기록 | 모든 단계가 Console 탭에 출력과 함께 남는다. 저장소별 쓰기 잠금, 60초 타임아웃, 프롬프트 없음, hooks 끔은 Pull과 같다. git 2.24 미만이거나 git이 없으면 API가 그 이유로 거부하고 UI도 꺼진다 |
+| AgentO 메뉴 | Pull·Fetch는 ReadO가 직접 하므로 AgentO ▾ 메뉴와 Git ▸ AgentO 하위 메뉴에서 뺐다. Commit·Push·New Branch·Stash·Merge·Rebase·Delete는 계속 AgentO 담당이다(`USE_DEEPLINK` 그대로) |
 
 <a id="sec-14-3"></a>
 
@@ -786,5 +805,5 @@ agento://dispatch?v=1&source=reado&kind=push&repo=C%3A%5CProjects%5Cmy-repo&bran
 
 | 테스트 | 항목 |
 |---|---|
-| `test_git.py` | 로컬 bare 원격과 클론 2개로 pullinfo, 성공(커밋 수·파일 수), 이미 최신, 비FF 거부(HEAD 불변), 로컬 변경 충돌 시 중단(작업 트리 불변), 저장 안 된 편집 확인, upstream 없음, CSRF 거부, `run()`의 fetch·merge 거부를 확인한다. 딥링크는 URL 형식, 인코딩, 200자 msg, 2000자 제한, ref 파일 내용, 핸들러 미등록 폴백, startfile 실패 폴백, kind 화이트리스트, nothing_to_commit·push를 확인한다(startfile 목킹) |
-| `ui_git_smoke.py` | 툴바 그룹 렌더, 브랜치 이름·↑↓, 버튼 비활성 조건, 브레드크럼 저장소 칩, pull 확인창과 실행, commit 요청 대화상자, 설정 아이콘 위치, 팔레트 모드 탭·`%` 검색, Find in Files 버튼 제거를 확인한다 |
+| `test_git.py` | 로컬 bare 원격과 클론 2개로 pullinfo, 성공(커밋 수·파일 수), 이미 최신, 비FF 거부(HEAD 불변), 로컬 변경 충돌 시 중단(작업 트리 불변), 저장 안 된 편집 확인, upstream 없음, CSRF 거부, `run()`의 fetch·merge 거부를 확인한다. 딥링크는 URL 형식, 인코딩, 200자 msg, 2000자 제한, ref 파일 내용, 핸들러 미등록 폴백, startfile 실패 폴백, kind 화이트리스트, nothing_to_commit·push를 확인한다(startfile 목킹). 2026-10-21: checkout(로컬 브랜치, 원격 전용 → 추적 브랜치 생성, 이미 추적하는 로컬로 이동, 추적 안 하는 같은 이름 거부, 로컬 변경 거부와 git 메시지 전달·작업 트리 불변, 저장 안 된 편집 확인, 현재 브랜치, 잘못된 ref·토큰 없음·폴더 밖 거부, `run()`의 switch·checkout 거부, 쓰기 러너의 checkout -f·reset·stash·clean 거부, 인덱스 갱신 호출)과 fetch --prune(↓ 표시, 지운 원격 브랜치 정리, HEAD 불변, 토큰 없음 거부), 인증 오류 문구 분류 |
+| `ui_git_smoke.py` | 툴바 그룹 렌더, 브랜치 이름·↑↓, 버튼 비활성 조건, 브레드크럼 저장소 칩, pull 확인창과 실행, commit 요청 대화상자, 설정 아이콘 위치, 팔레트 모드 탭·`%` 검색, Find in Files 버튼 제거를 확인한다. 2026-10-21: Pull 거부 대화상자(이유·git 메시지·Stash·Console), Git 도구창 Fetch·Pull·브랜치 버튼, 브랜치 팝업(현재 브랜치·Local/Remote·추적 표시·검색), 원격 전용 브랜치 checkout 뒤 칩·상태바·트리·열린 파일 갱신, 로컬 브랜치 checkout 뒤 삭제된 파일 탭 표시, 저장 안 된 편집 경고(취소·저장 뒤 git 거부) |

@@ -66,6 +66,116 @@ def _put(cwd, name, text):
         f.write(text)
 
 
+def checkout_ui_tests(pg, ev, shot, toast, A, UP):
+    """Branch popup (toolbar chip / Git window), checkout of local + remote-only branches, Fetch, Pull in the Git window."""
+    branch = lambda: _g(A, "rev-parse", "--abbrev-ref", "HEAD")
+    dlg_title = lambda: ev("document.getElementById('dlgTitle').textContent")
+    _g(A, "config", "core.autocrlf", "false")  # ReadO's git and _g() write the same line endings
+    _g(UP, "checkout", "-q", "-b", "featx")
+    _put(UP, "feature.txt", "feature\n")
+    _put(UP, "f.txt", "feature edit\n")
+    _g(UP, "add", "-A"); _g(UP, "commit", "-q", "-m", "feature x"); _g(UP, "push", "-q", "origin", "featx")
+    _g(UP, "checkout", "-q", "main")
+
+    print("== Git window: Fetch")
+    ev("GitUI.toggleWindow(true)")
+    pg.wait_for_function("!!document.querySelector('#gitWin [data-a=fetch]')", timeout=5000)
+    pg.click("#gitWin [data-a=fetch]")
+    pg.wait_for_function("document.getElementById('toast').textContent.startsWith('fetched')", timeout=20000)
+    check("refs/remotes/origin/featx" in _g(A, "for-each-ref", "--format=%(refname)", "refs/remotes") and branch() == "topic",
+          f"Fetch: new remote branch known, working tree untouched ({toast()})")
+
+    print("== toolbar: branch popup")
+    ev("openFile('my-repo/f.txt')")
+    pg.wait_for_function("document.querySelector('#gtbBranch .nm').textContent === 'topic'", timeout=10000)
+    pg.click("#gtbBranch")
+    pg.wait_for_selector("#gitPick .it", timeout=8000)
+    pop = ev("""(() => { const p = document.getElementById('gitPick');
+      return {hd: [...p.querySelectorAll('.hd')].map(x => x.textContent), it: [...p.querySelectorAll('.it')].map(x => x.textContent),
+              cur: (p.querySelector('.it.cur .nm') || {}).textContent, q: !!p.querySelector('input.q')}; })()""")
+    check(pop["hd"][0].startswith("Current: topic (no upstream)") and "Local" in pop["hd"] and "Remote" in pop["hd"] and pop["q"],
+          f"popup: current branch, Local / Remote, filter box ({pop['hd']})")
+    check(pop["cur"] == "topic" and any(t.startswith("main") for t in pop["it"]) and any(t.startswith("origin/featx") and "new local branch" in t for t in pop["it"])
+          and any(t.startswith("origin/main") and "local main" in t for t in pop["it"]),
+          "popup: current marked, remote branches say which local branch tracks them")
+    check(any(t.startswith("Pull") for t in pop["it"]) and any(t.startswith("Fetch") for t in pop["it"]), "popup: Pull and Fetch")
+    shot("t4-branch-popup")
+    pg.fill("#gitPick input.q", "featx")
+    its = ev("[...document.querySelectorAll('#gitPick .it')].map(x => x.textContent)")
+    check(len(its) == 1 and its[0].startswith("origin/featx"), f"filter: only origin/featx ({its})")
+
+    print("== checkout: remote-only branch")
+    pg.click("#gitPick .it")
+    pg.wait_for_function("document.getElementById('toast').textContent.startsWith('switched to featx')", timeout=20000)
+    check(branch() == "featx" and _g(A, "rev-parse", "--abbrev-ref", "featx@{upstream}") == "origin/featx",
+          f"remote branch: local featx tracking origin/featx ({toast()})")
+    pg.wait_for_function("document.querySelector('#gtbBranch .nm').textContent === 'featx'", timeout=10000)
+    pg.wait_for_function("!!document.querySelector('#tree .node[data-path=\"my-repo/feature.txt\"]')", timeout=10000)
+    pg.wait_for_function("monaco.editor.getModels().some(m => m.uri.path.endsWith('my-repo/f.txt') && m.getValue() === 'feature edit\\n')", timeout=10000)
+    pg.wait_for_function("document.getElementById('sbBranch').textContent.includes('featx')", timeout=10000)
+    pg.wait_for_function("document.querySelector('#gitWin [data-a=branch] .nm').textContent.startsWith('featx')", timeout=10000)
+    check(True, "after checkout: chip, status bar, tree (new file) and the open file show the branch")
+    shot("t5-checked-out")
+
+    print("== checkout: local branch, deleted file tab")
+    ev("openFile('my-repo/feature.txt')")
+    pg.wait_for_function("docs.has('my-repo/feature.txt')", timeout=10000)
+    pg.click("#gtbBranch")
+    pg.wait_for_selector("#gitPick .it", timeout=8000)
+    pg.fill("#gitPick input.q", "main")
+    pg.click("#gitPick .it:has(.nm:text-is('main'))")
+    pg.wait_for_function("document.getElementById('toast').textContent.startsWith('switched to main') || document.getElementById('toast').textContent.startsWith('deleted on disk')", timeout=20000)
+    check(branch() == "main", f"local branch: on main ({toast()})")
+    pg.wait_for_function("docs.get('my-repo/feature.txt') && docs.get('my-repo/feature.txt').gone", timeout=10000)
+    pg.wait_for_function("!document.querySelector('#tree .node[data-path=\"my-repo/feature.txt\"]')", timeout=10000)
+    check(True, "file not on main: its tab is marked deleted, tree entry gone")
+
+    print("== checkout: unsaved edits / local changes")
+    ev("openFile('my-repo/f.txt')")
+    pg.wait_for_function("currentPath === 'my-repo/f.txt'", timeout=10000)
+    ev("currentDoc().model.setValue('unsaved edit\\n')")
+    pg.wait_for_function("currentDoc().dirty", timeout=5000)
+    pg.click("#gtbBranch")
+    pg.wait_for_selector("#gitPick .it", timeout=8000)
+    pg.fill("#gitPick input.q", "featx")
+    pg.click("#gitPick .it:has(.nm:text-is('featx'))")
+    pg.wait_for_function("document.getElementById('dlgTitle').textContent.startsWith('Unsaved edits')", timeout=10000)
+    check("my-repo/f.txt" in ev("document.getElementById('dlgMsg').textContent"), "unsaved edits: warned before the checkout, file named")
+    pg.click("#dlgBtns button:has-text('cancel')")
+    time.sleep(0.5)
+    check(branch() == "main" and ev("currentDoc().dirty"), "cancel: no checkout, edit kept")
+    pg.click("#gtbBranch")
+    pg.wait_for_selector("#gitPick .it", timeout=8000)
+    pg.fill("#gitPick input.q", "featx")
+    pg.click("#gitPick .it:has(.nm:text-is('featx'))")
+    pg.wait_for_function("document.getElementById('dlgTitle').textContent.startsWith('Unsaved edits')", timeout=10000)
+    pg.click("#dlgBtns button.primary")
+    pg.wait_for_function("document.getElementById('dlgTitle').textContent.startsWith('Checkout of featx refused')", timeout=20000)
+    msg = ev("document.getElementById('dlgMsg').textContent")
+    with open(os.path.join(A, "f.txt"), encoding="utf-8") as f:
+        kept = f.read() == "unsaved edit\n"
+    check("would be overwritten" in msg and "stash" in msg.lower() and branch() == "main" and kept,
+          f"saved, then git refuses: its message + stash hint shown, nothing forced ({msg[:80]})")
+    check("Stash Changes… (AgentO)" in ev("document.getElementById('dlgBtns').textContent"), "refused checkout: Stash (AgentO) offered")
+    shot("t6-checkout-refused")
+    pg.click("#dlgBtns button.primary")
+    _g(A, "checkout", "-q", "--", "f.txt")
+
+    print("== Git window: branch button, Pull")
+    pg.wait_for_function("(document.querySelector('#gitWin [data-a=branch] .nm') || {}).textContent.startsWith('main')", timeout=15000)
+    pg.click("#gitWin [data-a=branch]")
+    pg.wait_for_selector("#gitPick .it", timeout=8000)
+    check(ev("document.querySelector('#gitPick .hd').textContent").startswith("Current: main → origin/main"), "Git window: branch popup for its repository")
+    pg.keyboard.press("Escape")
+    pg.click("#gitWin [data-a=pull]")
+    pg.wait_for_function("document.getElementById('dlgTitle').textContent === 'Pull main'", timeout=10000)
+    pg.click("#dlgBtns button.primary")
+    pg.wait_for_function("document.getElementById('toast').textContent === 'pull: already up to date'", timeout=20000)
+    check(True, "Git window Pull: already up to date")
+    ev("GitUI.toggleWindow(false)")
+    _g(A, "checkout", "-q", "topic")
+
+
 def find_dialog_tests(pg, ev, shot, base):
     """Find File (Ctrl+P) and Find in Files (Ctrl+Shift+F): one frame, switching keeps the text, prefixes, options saved."""
     QO, FIF = "document.getElementById('qoBg').classList.contains('show')", "document.getElementById('fifBg').classList.contains('show')"
@@ -363,8 +473,14 @@ def toolbar_tests(b, url, tmp, errors, shots):
     pg.click("#gtbPull")
     pg.wait_for_function("document.getElementById('dlgTitle').textContent === 'Pull main'", timeout=10000)
     pg.click("#dlgBtns button.primary")
-    pg.wait_for_function("document.getElementById('toast').textContent.startsWith('pull stopped')", timeout=20000)
-    check("local changes" in toast() and _g(A, "rev-parse", "HEAD") == before, f"local change in the way: stopped, nothing changed ({toast()})")
+    pg.wait_for_function("document.getElementById('dlgTitle').textContent.startsWith('Pull stopped')", timeout=20000)
+    msg = ev("document.getElementById('dlgMsg').textContent")
+    check("local changes" in msg and "never forces" in msg and "would be overwritten" in msg and _g(A, "rev-parse", "HEAD") == before,
+          f"local change in the way: dialog says why + git's message, nothing changed ({msg[:80]})")
+    check(ev("[...document.querySelectorAll('#dlgBtns button')].map(b => b.textContent).join('|')").startswith("Stash Changes… (AgentO)|show Console"),
+          "refused pull: Stash (AgentO) and Console offered")
+    shot("t2b-pull-refused")
+    pg.click("#dlgBtns button:has-text('show Console')")
     pg.wait_for_function("STATE.git.open && STATE.git.tab === 'console'", timeout=5000)
     pg.wait_for_function("document.querySelector('#gitWin [data-page=console] .gc-row pre.o')", timeout=8000)
     check("would be overwritten" in ev("document.querySelector('#gitWin [data-page=console]').textContent"), "failure: the Console tab shows the git output")
@@ -430,6 +546,7 @@ def toolbar_tests(b, url, tmp, errors, shots):
     pg.wait_for_function("document.querySelector('#gtbBranch .nm').textContent === 'topic'", timeout=15000)
     check(ev("document.getElementById('gtbPull').disabled") and "no upstream" in ev("document.getElementById('gtbPull').title"), "branch without upstream: Pull disabled, tooltip says why")
     check(not ev("document.getElementById('gtbPush').disabled"), "branch without upstream: Push request allowed (AgentO sets it up)")
+    checkout_ui_tests(pg, ev, shot, toast, A, UP)
 
     find_dialog_tests(pg, ev, shot, base)
     print("== top bar: narrow windows, dark theme")

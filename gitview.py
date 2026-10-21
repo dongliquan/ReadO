@@ -3,12 +3,14 @@ ReadO — read-only git views (Local Changes, Log, History, Blame, branches).
 
 ReadO only *looks* at repositories; every command that would change one
 (commit, checkout, stash …) is handed to AgentO as an instruction instead
-(see docs/GIT-DESIGN.md). The one exception is the toolbar Pull: fetch +
-fast-forward-only merge, run by pull() alone. This module therefore:
+(see docs/GIT-DESIGN.md). The exceptions only bring other commits into view:
+Pull (fetch + fast-forward-only merge), Fetch and branch checkout (git switch),
+run by pull() / fetch() / checkout() alone. This module therefore:
 
   * runs the installed git CLI (no bundled git); missing or older than
     MIN_VERSION -> the Git UI shows why and stays off;
   * only runs sub-commands from READ_ONLY (checked in one place, run());
+    the WRITE_CMDS steps only with fixed options, never forced, one at a time per repo;
   * neutralises repository settings that make read commands execute
     programs (core.fsmonitor and filter drivers from the repo's own config,
     external diff / textconv), takes no optional locks, never prompts;
@@ -34,7 +36,9 @@ Endpoints (GET, read guard; POST via server.write_api):
   POST /api/git/agento                  -> start / focus AgentO (guarded)
   POST /api/git/terminal                -> open a terminal in the repository (guarded)
   GET  /api/git/pullinfo?repo=          -> branch / upstream / remote for the Pull confirmation
-  POST /api/git/pull                    -> fetch + merge --ff-only (guarded; the one write)
+  POST /api/git/pull                    -> fetch + merge --ff-only (guarded)
+  POST /api/git/fetch                   -> fetch --prune (guarded)
+  POST /api/git/checkout                -> switch to a local branch / track a remote one (guarded)
   POST /api/git/agento-request          -> agento://dispatch deep link for Commit / Push (guarded)
 """
 import collections
@@ -60,9 +64,10 @@ BLAME_MAX = 8_000_000
 # Sub-commands ReadO may run. Anything else is refused in run().
 READ_ONLY = frozenset("""version rev-parse status log show cat-file diff-tree blame for-each-ref
 config symbolic-ref ls-files rev-list merge-base""".split())
-# The one exception (toolbar Pull, see pull()): fetch + a fast-forward-only merge. Only pull()
-# runs these, with fixed options; run() still refuses them.
-PULL_CMDS = frozenset(("fetch", "merge"))
+# The exceptions (Pull / Fetch / Checkout, see pull()): fetch, a fast-forward-only merge and
+# git switch. Only pull() / fetch() / checkout() run these, with fixed options; run() still
+# refuses them.
+WRITE_CMDS = frozenset(("fetch", "merge", "switch"))
 PULL_TIMEOUT = 60
 # `config` only with these (reading) options
 _CONFIG_READ = frozenset(("--get", "--get-regexp", "--get-all", "--list", "-l", "--show-scope",
@@ -206,8 +211,8 @@ def _q(a):
 
 def _check_allowed(args, write=False):
     if write:
-        if not args or args[0] not in PULL_CMDS:
-            raise GitError("bad_arg", "not a pull command: " + (args[0] if args else ""))
+        if not args or args[0] not in WRITE_CMDS:
+            raise GitError("bad_arg", "not a pull / checkout command: " + (args[0] if args else ""))
         return
     if not args or args[0] not in READ_ONLY:
         raise GitError("bad_arg", "not a read-only git command: " + (args[0] if args else ""))
@@ -1298,7 +1303,7 @@ def api_terminal(data):
 # unsaved edits for change: fetch the upstream's remote, then `merge --ff-only <fetched sha>`.
 # Never a merge commit, rebase or autostash; anything but a fast-forward stops with nothing changed.
 
-_pull_locks = collections.defaultdict(threading.Lock)
+_write_locks = collections.defaultdict(threading.Lock)  # one pull / fetch / checkout per repo
 _REMOTE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.\-/]{0,199}")
 
 
@@ -1357,9 +1362,9 @@ def _pull_error(text):
 
 
 def pull(top, unsaved=(), allow_unsaved=False):
-    lock = _pull_locks[os.path.normcase(top)]
+    lock = _write_locks[os.path.normcase(top)]
     if not lock.acquire(blocking=False):
-        raise GitError("busy", "a pull is already running in this repository")
+        raise GitError("busy", "a pull / checkout is already running in this repository")
     try:
         inf = pull_info(top)
         if inf["reason"]:
@@ -1389,10 +1394,149 @@ def pull(top, unsaved=(), allow_unsaved=False):
         if rc:
             return {"ok": False, "error": _pull_error(text), "output": "\n".join(output), "info": inf}
         n = int(run(["rev-list", "--count", head + ".." + up], top).decode().strip() or 0)
+        _source_changed(top)
         return {"ok": True, "updated": True, "from": head, "to": up, "commits": n, "files": len(files),
                 "changed": files[:2000], "output": "\n".join(output), "info": inf}
     finally:
         lock.release()
+
+
+def _source_changed(top):
+    """After a pull / checkout moved HEAD: status / refs caches and the folder's file list
+    and symbol index catch up (the page re-reads open files and the tree itself)."""
+    _status_cache.pop(top, None)
+    try:
+        S.source_changed()
+    except Exception:  # never fail the git step over an index refresh
+        pass
+
+
+def fetch(top):
+    """git fetch --prune from the current branch's remote (else git's default remote)."""
+    lock = _write_locks[os.path.normcase(top)]
+    if not lock.acquire(blocking=False):
+        raise GitError("busy", "a pull / checkout is already running in this repository")
+    try:
+        b = status(top, fresh=True)["branch"].get("head", "")
+        remote = _cfg(top, "branch." + b + ".remote") if b else ""
+        args = ["fetch", "--prune"] + ([remote] if remote and remote != "." and _REMOTE.fullmatch(remote) else [])
+        rc, text = _wrun(args, top)
+        output = "$ git " + " ".join(args) + ("\n" + text if text else "")
+        if rc:
+            return {"ok": False, "error": _pull_error(text), "output": output}
+        st = status(top, fresh=True)["branch"]
+        return {"ok": True, "remote": args[2] if len(args) > 2 else "", "output": output or "$ git fetch --prune",
+                "ahead": st.get("ahead", 0), "behind": st.get("behind", 0), "upstream": st.get("upstream", "")}
+    finally:
+        lock.release()
+
+
+def _remotes(top):
+    out = run(["config", "--get-regexp", r"^remote\..*\.url$"], top, timeout=5, ok=(0, 1)).decode("utf-8", "replace")
+    names = [ln.split(" ", 1)[0][7:-4] for ln in out.splitlines() if ln.startswith("remote.")]
+    return sorted((n for n in names if n), key=len, reverse=True)  # longest first: "a/b" before "a"
+
+
+def _checkout_error(text):
+    t = text.lower()
+    if "would be overwritten" in t or "untracked working tree files" in t or "you need to resolve" in t:
+        return "local_changes"
+    return "git_failed"
+
+
+def checkout(top, ref, unsaved=(), allow_unsaved=False):
+    """Switch to a local branch (refs/heads/x), or to a remote one (refs/remotes/o/x) through a
+    local tracking branch x (made with git switch --create x --track o/x when missing). Never
+    forced: git refuses when local changes are in the way and nothing changes."""
+    lock = _write_locks[os.path.normcase(top)]
+    if not lock.acquire(blocking=False):
+        raise GitError("busy", "a pull / checkout is already running in this repository")
+    try:
+        if not isinstance(ref, str) or not ref.startswith(("refs/heads/", "refs/remotes/")):
+            raise GitError("bad_arg", "ref")
+        state = repo_state(top)
+        if state:
+            return {"ok": False, "error": "repo_busy", "state": state}
+        rf = refs(top)
+        cur = rf["head"]
+        local = {x["name"]: x for x in rf["local"]}
+        created, tracking = False, ""
+        if ref.startswith("refs/heads/"):
+            item = local.get(ref[11:])
+            if not item or item["ref"] != ref:
+                raise GitError("bad_arg", "unknown branch " + ref[11:])
+            name = item["name"]
+        else:
+            item = next((x for x in rf["remote"] if x["ref"] == ref), None)
+            if not item:
+                raise GitError("bad_arg", "unknown remote branch " + ref[13:])
+            tracking = item["name"]
+            remote = next((r for r in _remotes(top) if tracking.startswith(r + "/")), "")
+            name = tracking[len(remote) + 1:] if remote else ""
+            if not name or name.startswith("-"):
+                raise GitError("bad_arg", "no remote for " + tracking)
+            have = local.get(name)
+            if have and have["upstream"] != tracking:
+                return {"ok": False, "error": "local_exists", "branch": name, "upstream": have["upstream"],
+                        "remote_branch": tracking}
+            if have:
+                item = have  # already tracked by a local branch: switch to that one
+            else:
+                created = True
+        if name == cur:
+            return {"ok": True, "updated": False, "branch": name, "output": f"Already on '{name}'."}
+        files = []
+        if rf["head_sha"]:
+            files = [f for f in run(["diff-tree", "-r", "--name-only", "--no-renames", "-z", rf["head_sha"], item["sha"]],
+                                    top, timeout=30).decode("utf-8", "replace").split("\0") if f]
+        unsaved = {str(u).replace("\\", "/") for u in (unsaved or []) if isinstance(u, str)}
+        hit = sorted(f for f in files if f in unsaved)
+        if hit and not allow_unsaved:
+            return {"ok": False, "need_confirm": "unsaved", "files": hit, "branch": name}
+        args = ["switch", "--no-guess"] + (["--create", name, "--track", tracking] if created else [name])
+        rc, text = _wrun(args, top)
+        output = "$ git " + " ".join(_q(a) for a in args) + ("\n" + text if text else "")
+        if rc:
+            return {"ok": False, "error": _checkout_error(text), "git": text[:4000], "output": output, "branch": name}
+        _refs_cache.pop(top, None)
+        _source_changed(top)
+        return {"ok": True, "updated": True, "branch": name, "from": cur, "created": created, "tracking": tracking,
+                "files": len(files), "changed": files[:2000], "output": output}
+    finally:
+        lock.release()
+
+
+def _write_top(data):
+    exe, _, reason = git_exe()
+    if reason:
+        raise GitError(reason)
+    return repo_of(str(data.get("repo") or ""))
+
+
+def _unsaved_arg(data):
+    unsaved = data.get("unsaved") or []
+    if not isinstance(unsaved, list) or len(unsaved) > 10000:
+        raise GitError("bad_arg", "unsaved")
+    return unsaved
+
+
+def _api_error(e):
+    return (400 if e.code in ("bad_arg", "not_repo") else 200), {"ok": False, "error": e.code, "detail": e.detail}
+
+
+def api_fetch(data):
+    try:
+        return fetch(_write_top(data))
+    except GitError as e:
+        return _api_error(e)
+
+
+def api_checkout(data):
+    try:
+        top = _write_top(data)
+        return checkout(top, data.get("ref"), _unsaved_arg(data), bool(data.get("allow_unsaved")))
+    except GitError as e:
+        return _api_error(e)
 
 
 def api_pull(data):
@@ -1763,6 +1907,8 @@ def register(server_module):
     S.write_api("/api/git/commits", max_body=1_000_000)(api_commits)
     S.write_api("/api/git/agento")(api_agento)
     S.write_api("/api/git/pull")(api_pull)
+    S.write_api("/api/git/fetch")(api_fetch)
+    S.write_api("/api/git/checkout")(api_checkout)
     S.write_api("/api/git/agento-request", max_body=1_000_000)(api_agento_request)
     S.write_api("/api/git/terminal")(api_terminal)
     S.write_api("/api/git/diffwin", max_body=4_000_000)(api_diffwin)

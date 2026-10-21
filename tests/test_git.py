@@ -602,6 +602,130 @@ def pull_tests(tmp):
     srv.shutdown()
 
 
+def checkout_tests(tmp):
+    """Branch checkout (git switch) and Fetch against a local bare remote."""
+    import gitview
+    base = os.path.join(tmp, "cofx")
+    remote, a, b = (os.path.join(base, n) for n in ("remote.git", "a", "b"))
+    os.makedirs(base)
+    _g(base, "init", "-q", "--bare", "remote.git")
+    _g(base, "clone", "-q", remote, "b")
+    _commit(b, "f.txt", "one\n", "first")
+    _g(b, "push", "-q", "origin", "HEAD:main")
+    _g(b, "checkout", "-q", "-b", "feature")
+    _commit(b, "feature.txt", "feature\n", "feature work")
+    _g(b, "push", "-q", "origin", "feature")
+    _g(b, "push", "-q", "origin", "main:other")
+    _g(b, "push", "-q", "origin", "main:doomed")
+    _g(b, "checkout", "-q", "main")
+    _g(base, "clone", "-q", "-b", "main", remote, "a")
+    _g(a, "config", "core.autocrlf", "false")  # ReadO's git and _g() write the same line endings
+    _g(a, "checkout", "-q", "-b", "local1")
+    _commit(a, "f.txt", "one\nlocal1\n", "local1 edit")
+    _commit(a, "only1.txt", "1\n", "local1 file")
+    _g(a, "checkout", "-q", "main")
+    _g(a, "branch", "-q", "--no-track", "other", "main")  # same name as origin/other, not tracking it
+    srv, c = start(base)
+    A = a.replace("\\", "/")
+    branch = lambda: _g(a, "rev-parse", "--abbrev-ref", "HEAD")
+    changed = []
+    orig_sc = server.source_changed
+    server.source_changed = lambda: changed.append(1)
+    try:
+        print("== checkout: local branch")
+        code, d = c.post("/api/git/checkout", {"repo": A, "ref": "refs/heads/local1"})
+        check(code == 200 and d.get("ok") and d.get("updated") and branch() == "local1" and not d.get("created"),
+              f"local branch: switched to local1 ({d.get('error')} {d.get('git')})")
+        check(sorted(d.get("changed", [])) == ["f.txt", "only1.txt"] and os.path.isfile(os.path.join(a, "only1.txt")),
+              f"local branch: changed files listed, working tree updated {d.get('changed')}")
+        check("git switch --no-guess local1" in d.get("output", ""), "output names git switch")
+        code, con, _ = c.git("console")
+        check(any(e["cmd"].startswith("git switch --no-guess local1") for e in con.get("entries", [])), "switch in the Console")
+        check(len(changed) == 1, "checkout: file list / symbol index refresh started")
+        code, d, _ = c.git("status", repo=A)
+        check(d.get("branch", {}).get("head") == "local1", "status shows the new branch at once")
+        code, d = c.post("/api/git/checkout", {"repo": A, "ref": "refs/heads/local1"})
+        check(d.get("ok") and d.get("updated") is False, "checkout of the current branch: nothing to do")
+
+        print("== checkout: remote-only branch -> tracking branch")
+        code, d = c.post("/api/git/checkout", {"repo": A, "ref": "refs/remotes/origin/feature"})
+        check(d.get("ok") and d.get("created") and branch() == "feature"
+              and _g(a, "rev-parse", "--abbrev-ref", "feature@{upstream}") == "origin/feature",
+              f"remote branch: local feature created, tracks origin/feature ({d.get('error')} {d.get('git')})")
+        check("--create feature --track origin/feature" in d.get("output", "") and os.path.isfile(os.path.join(a, "feature.txt")),
+              "remote branch: git switch --create --track, file there")
+        _g(a, "checkout", "-q", "main")
+        code, d = c.post("/api/git/checkout", {"repo": A, "ref": "refs/remotes/origin/feature"})
+        check(d.get("ok") and not d.get("created") and branch() == "feature", "remote branch with a tracking local branch: switches to it")
+        _g(a, "checkout", "-q", "main")
+        code, d = c.post("/api/git/checkout", {"repo": A, "ref": "refs/remotes/origin/other"})
+        check(not d.get("ok") and d.get("error") == "local_exists" and branch() == "main",
+              "remote branch whose name a non-tracking local branch has: refused")
+
+        print("== checkout: local changes in the way")
+        with open(os.path.join(a, "f.txt"), "w", encoding="utf-8", newline="\n") as f:
+            f.write("my edit\n")
+        n = len(changed)
+        code, d = c.post("/api/git/checkout", {"repo": A, "ref": "refs/heads/local1"})
+        with open(os.path.join(a, "f.txt"), encoding="utf-8") as f:
+            kept = f.read() == "my edit\n"
+        check(not d.get("ok") and d.get("error") == "local_changes" and "would be overwritten" in d.get("git", "")
+              and branch() == "main" and kept and len(changed) == n,
+              f"local changes: git refuses, its message passed on, branch + file unchanged ({d.get('error')})")
+        _g(a, "checkout", "-q", "--", "f.txt")
+        code, d = c.post("/api/git/checkout", {"repo": A, "ref": "refs/heads/local1", "unsaved": ["f.txt", "x.txt"]})
+        check(d.get("need_confirm") == "unsaved" and d.get("files") == ["f.txt"] and branch() == "main",
+              "unsaved editor edits in a file the checkout changes: asks first")
+        code, d = c.post("/api/git/checkout", {"repo": A, "ref": "refs/heads/local1", "unsaved": ["f.txt"], "allow_unsaved": True})
+        check(d.get("ok") and branch() == "local1", "unsaved: checkout after the confirmation")
+        _g(a, "checkout", "-q", "main")
+
+        print("== checkout: refused input")
+        for ref in ("refs/heads/nope", "refs/tags/x", "HEAD", "--orphan", "refs/remotes/origin/nope", None):
+            code, d = c.post("/api/git/checkout", {"repo": A, "ref": ref})
+            check(code == 400 and d.get("error") == "bad_arg" and branch() == "main", f"checkout {ref!r}: bad_arg")
+        code, d = c.post("/api/git/checkout", {"repo": A, "ref": "refs/heads/local1"}, token=False)
+        check(code == 403 and branch() == "main", f"checkout without the page token refused ({code})")
+        code, d = c.post("/api/git/checkout", {"repo": os.environ.get("SystemRoot", "C:/Windows"), "ref": "refs/heads/main"})
+        check(code == 400 and d.get("error") == "not_repo", "checkout outside the working folder refused")
+        for cmd in (["switch", "local1"], ["checkout", "local1"]):
+            try:
+                gitview.run(cmd, a)
+                check(False, f"run() refuses {cmd[0]}")
+            except gitview.GitError as e:
+                check(e.code == "bad_arg", f"run() refuses {cmd[0]}")
+        for cmd in (["checkout", "-f"], ["reset", "--hard"], ["stash"], ["clean", "-fd"]):
+            try:
+                gitview._check_allowed(cmd, write=True)
+                check(False, f"write runner refuses {cmd[0]}")
+            except gitview.GitError:
+                check(True, f"write runner refuses {cmd[0]}")
+
+        print("== fetch --prune")
+        _commit(b, "new.txt", "n\n", "remote news")
+        _g(b, "push", "-q", "origin", "main")
+        _g(b, "push", "-q", "origin", "--delete", "doomed")
+        head = _g(a, "rev-parse", "HEAD")
+        code, d = c.post("/api/git/fetch", {"repo": A})
+        refs = _g(a, "for-each-ref", "--format=%(refname)", "refs/remotes")
+        check(d.get("ok") and d.get("behind") == 1 and d.get("remote") == "origin" and "fetch --prune origin" in d.get("output", ""),
+              f"fetch: origin, ↓1 now known ({d.get('error')} {d.get('behind')})")
+        check("refs/remotes/origin/doomed" not in refs and _g(a, "rev-parse", "HEAD") == head,
+              "fetch: deleted remote branch pruned, HEAD / working tree untouched")
+        code, d = c.post("/api/git/fetch", {"repo": A}, token=False)
+        check(code == 403, "fetch without the page token refused")
+
+        print("== pull after fetch, error texts")
+        code, d = c.post("/api/git/pull", {"repo": A})
+        check(d.get("ok") and d.get("updated") and os.path.isfile(os.path.join(a, "new.txt")), "pull: fetched commit applied")
+        check(gitview._pull_error("fatal: Authentication failed for 'https://x/'") == "auth"
+              and gitview._pull_error("fatal: could not read Username for 'https://x': terminal prompts disabled") == "auth",
+              "auth failures recognised")
+    finally:
+        server.source_changed = orig_sc
+        srv.shutdown()
+
+
 def perf(c, top, label, rounds=1):
     R = top.replace("\\", "/")
     rows = []
@@ -655,6 +779,7 @@ def main():
             check(snapshot(fx[k]) == v, f"{k}: HEAD / index / refs / config unchanged")
         srv.shutdown()
         pull_tests(tmp)
+        checkout_tests(tmp)
         for repo in extra:
             before = snapshot(repo)
             srv, c = start(os.path.dirname(os.path.realpath(repo)))

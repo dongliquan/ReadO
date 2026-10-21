@@ -134,6 +134,17 @@ Changes since 0.1.0, not yet given a version number.
 
 - Git toolbar group follows the active file's repository: branch, ahead / behind and **Pull** (`git fetch` +
   fast-forward merge, with a confirmation; the one git write ReadO runs). Commit / Push hand the request to AgentO.
+- **Get the latest sources without AgentO**: Pull, Fetch and branch checkout run in ReadO.
+  - Pull (fast-forward only) from the toolbar, the Git window, the branch popup or the Git menu. When it cannot
+    fast-forward, local changes are in the way, credentials are missing or a merge / rebase is in progress, a dialog
+    says why with git's message (nothing is merged, rebased, forced or discarded) and offers Stash (AgentO) / Console.
+  - Fetch (`git fetch --prune`) shows the new ↑ahead ↓behind.
+  - Clicking the toolbar branch chip opens the branch popup (right-click: Log): current branch with ↑↓, a filter box,
+    Local and Remote branches; picking one checks it out — a remote-only branch through a new local tracking branch.
+    Unsaved edits are saved first or the checkout is cancelled; when git refuses because of local changes its message
+    is shown with a stash hint.
+  - Afterwards the file tree, open files (unedited ones re-read, edited ones kept and flagged, deleted ones marked),
+    the symbol index, the Git window and the status bar show the new sources.
 - The breadcrumb shows the repository folder as a chip; the settings gear moved to the bottom of the tool strip.
 - Fixed: the Git icon on the tool strip did nothing when the open folder holds repositories but is not one itself;
   it now opens the Git tool window like the Git menu.

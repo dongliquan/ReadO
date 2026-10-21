@@ -336,6 +336,8 @@ function pickList(anchor, items, opts) {
   closePick();
   const box = el('div', 'gpick');
   box.id = 'gitPick';
+  const w = opts.width || 300;
+  if (opts.width) box.style.width = w + 'px';
   const sel = new Set(opts.selected || []);
   box.innerHTML = `<input class="q" placeholder="${esc(opts.placeholder || 'filter…')}" spellcheck="false"><div class="lst"></div>` +
     (opts.multi ? '<div class="ft"><button data-a="clear">all</button><button data-a="ok">apply</button></div>' : '');
@@ -346,7 +348,7 @@ function pickList(anchor, items, opts) {
     shown = items.filter(it => it.header || !t || String(it.label).toLowerCase().includes(t));
     if (t) shown = shown.filter((it, i) => !it.header || (shown[i + 1] && !shown[i + 1].header));
     lst.innerHTML = shown.slice(0, 500).map((it, i) => it.header ? `<div class="hd">${esc(it.label)}</div>` :
-      `<div class="it${i === act ? ' act' : ''}" data-i="${i}">${opts.multi ? `<input type="checkbox"${sel.has(it.value) ? ' checked' : ''}>` : ''}<span class="nm">${esc(it.label)}</span>${it.hint ? `<span class="hint">${esc(it.hint)}</span>` : ''}</div>`).join('') ||
+      `<div class="it${i === act ? ' act' : ''}${it.cls ? ' ' + it.cls : ''}" data-i="${i}">${opts.multi ? `<input type="checkbox"${sel.has(it.value) ? ' checked' : ''}>` : ''}<span class="nm">${esc(it.label)}</span>${it.hint ? `<span class="hint">${esc(it.hint)}</span>` : ''}</div>`).join('') ||
       `<div class="gw-empty">${esc(opts.empty || 'nothing matches')}</div>`;
   };
   const choose = i => {
@@ -382,7 +384,7 @@ function pickList(anchor, items, opts) {
   document.body.appendChild(box);
   const r = anchor.getBoundingClientRect();
   const h = box.getBoundingClientRect().height;
-  box.style.left = Math.max(4, Math.min(r.left, innerWidth - 304)) + 'px';
+  box.style.left = Math.max(4, Math.min(r.left, innerWidth - w - 4)) + 'px';
   box.style.top = (r.bottom + h + 4 < innerHeight ? r.bottom + 2 : Math.max(4, r.top - h - 2)) + 'px';
   q.focus();
 }
@@ -863,8 +865,11 @@ function buildWindow() {
     <span class="gw-tab" data-tab="console">Console</span>
     <span class="gw-spacer"></span>
     <select class="gw-repo" title="repository"></select>
+    <button class="gw-ibtn gw-br" data-a="branch" title="branches: check out, pull, fetch">⎇ <span class="nm">…</span></button>
+    <button class="gw-ibtn" data-a="pull" title="Pull (git pull --ff-only: fast-forward only)">↓ Pull</button>
+    <button class="gw-ibtn" data-a="fetch" title="Fetch (git fetch --prune)">Fetch</button>
     <button class="gw-ibtn" data-a="refresh" title="refresh">⟳</button>
-    <button class="gw-ibtn agent" data-a="agent" title="ask AgentO to change the repository (commit, push, pull, branches …)">AgentO ▾</button>
+    <button class="gw-ibtn agent" data-a="agent" title="ask AgentO to change the repository (commit, push, branches …)">AgentO ▾</button>
     <button class="gw-ibtn" data-a="close" title="hide (Alt+9 / Ctrl+Shift+G)">✕</button>
    </div>
    <div class="gw-body">
@@ -885,9 +890,12 @@ function buildWindow() {
       if (e.target.classList.contains('x')) { closeHistory(); return; }
       return setTab(tab.dataset.tab);
     }
-    const a = e.target.dataset && e.target.dataset.a;
+    const btn = e.target.closest('[data-a]'), a = btn && btn.dataset.a;
     if (a === 'close') toggleWindow(false);
     if (a === 'refresh') refreshAll(true);
+    if (a === 'branch' && G.repo) branchPopup(btn, G.repo);
+    if (a === 'pull' && G.repo) tbPull(G.repo);
+    if (a === 'fetch' && G.repo) gitFetch(G.repo);
     if (a === 'agent') agentMenu(e.target);
   });
   W.repoSel.addEventListener('change', () => selectRepo(W.repoSel.value));
@@ -910,8 +918,6 @@ function agentMenu(anchor) {
   showMenu(r.left, r.bottom + 2, [
     { label: 'Commit…', hint: STATE.keymap === 'intellij' ? 'Ctrl+K' : '', run: () => runCommand('git.agentCommit') },
     { label: 'Push…', hint: STATE.keymap === 'intellij' ? 'Ctrl+Shift+K' : '', run: () => agentDialog('push', { branch: b.head, upstream: b.upstream }) },
-    { label: 'Pull / Update…', run: () => agentDialog('pull', { branch: b.head }) },
-    { label: 'Fetch…', run: () => agentDialog('fetch') },
     'sep',
     { label: 'New Branch…', run: () => agentDialog('newBranch', {}) },
     { label: 'Stash Changes…', run: () => agentDialog('stashPush') },
@@ -1738,7 +1744,7 @@ function branchMenu(x, y, ref, view) {
     { label: 'Show in Log', run: () => { setTab('log'); Log.filters.ref = [ref]; Log.syncFilterButtons(); Log.reload(false, true); } },
     { label: 'Copy Name', run: () => copy(name, 'name') },
     'sep',
-    { label: `Checkout ${name}… (AgentO)`, disabled: isCur || ref === 'HEAD', run: () => agentDialog('checkout', { ref: name }) },
+    { label: `Checkout ${name}`, disabled: isCur || !/^refs\/(heads|remotes)\//.test(ref), run: () => gitCheckout(G.repo, ref) },
     { label: `New Branch from ${name}… (AgentO)`, run: () => agentDialog('newBranch', { from: name }) },
     { label: `Merge ${name} into ${b.head || 'Current'}… (AgentO)`, disabled: isCur || ref === 'HEAD', run: () => agentDialog('merge', { ref: name, branch: b.head }) },
     { label: `Rebase ${b.head || 'Current'} onto ${name}… (AgentO)`, disabled: isCur || ref === 'HEAD', run: () => agentDialog('rebase', { ref: name, branch: b.head }) },
@@ -1829,7 +1835,7 @@ const Console_ = {
   built: false, entries: [], since: 0, timer: null,
   build() {
     const p = W.pages.console;
-    p.innerHTML = `<div class="gw-col" style="flex:1"><div class="gw-bar"><button data-a="clear">clear</button><span class="sum">git commands ReadO ran (newest last) — all read-only except the toolbar Pull</span></div><div class="gw-scroll"></div></div>`;
+    p.innerHTML = `<div class="gw-col" style="flex:1"><div class="gw-bar"><button data-a="clear">clear</button><span class="sum">git commands ReadO ran (newest last) — all read-only except Pull, Fetch and Checkout</span></div><div class="gw-scroll"></div></div>`;
     this.box = p.querySelector('.gw-scroll');
     p.querySelector('.gw-bar').addEventListener('click', e => { if (e.target.dataset.a === 'clear') { this.entries = []; this.render(); } });
     readable(this.box, e => {
@@ -1917,27 +1923,57 @@ updateBranch = function () {
   if (txt && G.repo && G.repo.state) txt += ' · ' + G.repo.state.toUpperCase();
   sb.textContent = txt;
   sb.classList.toggle('gw-link', !!txt);
-};
-async function branchPopup(anchor) {
-  const doc = currentDoc();
-  if (doc && doc.gitRepo) {
-    const inf = await api('info', { path: doc.key });
-    if (inf.repo && (!G.repo || G.repo.root !== inf.repo.root)) await selectRepo(inf.repo.root, true);
+  const wb = W && W.head.querySelector('[data-a="branch"] .nm');
+  if (wb) {
+    const b = st ? st.branch : null;
+    wb.textContent = !b ? '…' : (b.head || 'detached ' + short(b.oid)) + (b.upstream && (b.ahead || b.behind) ? `  ↑${b.ahead} ↓${b.behind}` : '');
+    const pb = W.head.querySelector('[data-a="pull"]');
+    pb.title = 'Pull (git pull --ff-only: fast-forward only)' + (b && b.behind ? ` — ↓${b.behind} known` : '') +
+      (b && !b.head ? '\n— ' + PULL_WHY.detached : b && !b.upstream ? '\n— ' + PULL_WHY.no_upstream : '');
   }
-  if (!G.repo) { await loadRepos(); if (!G.repo) return showToast('no git repository here', true); }
-  const refs = await loadRefs();
-  if (!refs) return;
-  const b = (G.status && G.status.branch) || {};
-  const items = [{ value: 'act:newBranch', label: 'New Branch… (AgentO)' }, { value: 'act:pull', label: 'Update / Pull… (AgentO)' },
+};
+// Branches of a repository (toolbar branch chip, status bar, Git window): the current branch with
+// ↑ahead ↓behind, Pull / Fetch, then Local and Remote branches with a filter box — picking one
+// checks it out (a remote-only one through a new local tracking branch).
+async function branchPopup(anchor, repo) {
+  if (!repo) {
+    const doc = currentDoc();
+    if (doc && doc.gitRepo) {
+      const inf = await api('info', { path: doc.key });
+      if (inf.repo && (!G.repo || G.repo.root !== inf.repo.root)) await selectRepo(inf.repo.root, true);
+    }
+    if (!G.repo) { await loadRepos(); if (!G.repo) return showToast('no git repository here', true); }
+    repo = G.repo;
+  }
+  const [refs, st] = await Promise.all([api('refs', { repo: repo.root }), api('status', { repo: repo.root })]);
+  if (refs.error) return showToast('branches: ' + errText(refs), true);
+  const b = (st && st.branch) || {};
+  const tracked = new Map(refs.local.filter(x => x.upstream).map(x => [x.upstream, x.name]));
+  const ab = x => (x.ahead || x.behind ? `↑${x.ahead} ↓${x.behind}` : '');
+  const cur = b.head ? b.head + (b.upstream ? ` → ${b.upstream}  ↑${b.ahead} ↓${b.behind}` : ' (no upstream)')
+    : 'detached HEAD ' + short(b.oid || refs.head_sha || '');
+  const state = (st && st.repo && st.repo.state) || '';
+  const items = [{ header: true, label: 'Current: ' + cur + (state ? ' · ' + state.toUpperCase() : '') },
+    { value: 'act:pull', label: 'Pull (fast-forward only)', hint: b.behind ? `↓${b.behind}` : '' },
+    { value: 'act:fetch', label: 'Fetch (--prune)' },
+    { value: 'act:log', label: 'Show Log' },
+    { value: 'act:newBranch', label: 'New Branch… (AgentO)' },
     { value: 'act:push', label: 'Push… (AgentO)', hint: STATE.keymap === 'intellij' ? 'Ctrl+Shift+K' : '' },
-    { header: true, label: 'Local' }].concat(refs.local.map(x => ({ value: x.ref, label: x.name, hint: (x.current ? '★ ' : '') + (x.ahead || x.behind ? `↑${x.ahead} ↓${x.behind}` : '') })),
-    [{ header: true, label: 'Remote' }], refs.remote.map(x => ({ value: x.ref, label: x.name })));
-  pickList(anchor, items, { placeholder: `${G.repo.name}: branches…`, onPick: v => {
-    if (v === 'act:newBranch') return agentDialog('newBranch', {});
-    if (v === 'act:pull') return agentDialog('pull', { branch: b.head });
-    if (v === 'act:push') return agentDialog('push', { branch: b.head, upstream: b.upstream });
-    const r = anchor.getBoundingClientRect();
-    branchMenu(r.left, r.top - 10, v);
+    { header: true, label: 'Local' }].concat(
+    refs.local.map(x => ({ value: x.ref, label: x.name, current: x.current, cls: x.current ? 'cur' : '',
+      hint: (x.current ? '✓ current  ' : '') + (x.gone ? 'upstream gone  ' : '') + ab(x) })),
+    [{ header: true, label: 'Remote' }],
+    refs.remote.map(x => ({ value: x.ref, label: x.name, hint: tracked.has(x.name) ? 'local ' + tracked.get(x.name) : 'new local branch' })));
+  pickList(anchor, items, { placeholder: `${repo.name}: filter branches…`, empty: 'no branch matches', width: 380, onPick: (v, it) => {
+    if (v === 'act:pull') return tbPull(repo);
+    if (v === 'act:fetch') return gitFetch(repo);
+    if (v === 'act:log') return (async () => { if (!G.repo || G.repo.root !== repo.root) await selectRepo(repo.root, true); openTab('log'); })();
+    if (v === 'act:newBranch' || v === 'act:push') return (async () => {
+      if (!G.repo || G.repo.root !== repo.root) await selectRepo(repo.root, true);
+      if (v === 'act:newBranch') agentDialog('newBranch', {}); else agentDialog('push', { branch: b.head, upstream: b.upstream });
+    })();
+    if (it.current) return showToast('already on ' + it.label);
+    gitCheckout(repo, v);
   } });
 }
 
@@ -2290,11 +2326,8 @@ const GIT_COMMANDS = [
     const b = G.status.branch || {};
     agentDialog('push', { branch: b.head, upstream: b.upstream });
   } },
-  { id: 'git.agentPull', cat: 'Git', title: 'Pull / Update… (AgentO)', run: async () => {
-    if (!(await ensureRepoForCommand())) return;
-    agentDialog('pull', { branch: (G.status.branch || {}).head });
-  } },
-  { id: 'git.agentFetch', cat: 'Git', title: 'Fetch… (AgentO)', run: async () => { if (await ensureRepoForCommand()) agentDialog('fetch'); } },
+  { id: 'git.pull', cat: 'Git', title: 'Pull (fast-forward only)', run: () => tbPull(TB.repo || G.repo), enabled: () => !TB.busy && !!(TB.repo || G.repo) },
+  { id: 'git.fetch', cat: 'Git', title: 'Fetch', run: () => gitFetch(TB.repo || G.repo), enabled: () => !TB.busy && !!(TB.repo || G.repo) },
   { id: 'git.agentBranch', cat: 'Git', title: 'New Branch… (AgentO)', run: async () => { if (await ensureRepoForCommand()) agentDialog('newBranch', {}); } },
   { id: 'git.agentStash', cat: 'Git', title: 'Stash Changes… (AgentO)', run: async () => { if (await ensureRepoForCommand()) agentDialog('stashPush'); } },
   { id: 'git.agentAsk', cat: 'Git', title: 'Ask AgentO…', run: async () => { if (await ensureRepoForCommand()) agentDialog('ask'); } },
@@ -2321,8 +2354,8 @@ function registerCommands() {
   if (!MENUS.some(m => m.label === 'Git')) {
     const i = MENUS.findIndex(m => m.label === 'Window');
     MENUS.splice(i < 0 ? MENUS.length - 1 : i, 0, { label: 'Git', items: ['git.toolwin', 'git.changes', 'git.log', 'git.stash', 'git.console', '-',
-      'git.history', 'git.blame', 'git.lineBlame', 'file.compareHead', 'git.branches', '-',
-      { label: 'AgentO', items: ['git.agentCommit', 'git.agentPush', 'git.agentPull', 'git.agentFetch', '-', 'git.agentBranch', 'git.agentStash', '-', 'git.agentAsk', 'git.openAgentO', 'git.agentoPath'] },
+      'git.history', 'git.blame', 'git.lineBlame', 'file.compareHead', '-', 'git.branches', 'git.pull', 'git.fetch', '-',
+      { label: 'AgentO', items: ['git.agentCommit', 'git.agentPush', '-','git.agentBranch', 'git.agentStash', '-', 'git.agentAsk', 'git.openAgentO', 'git.agentoPath'] },
       'git.terminal', '-', 'git.repo', 'git.refresh'] });
   }
   applyKeymap(STATE.keymap);
@@ -2340,8 +2373,8 @@ function registerCommands() {
     const anchor = prefs && prefs.previousElementSibling && prefs.previousElementSibling.classList.contains('tbsep') ? prefs.previousElementSibling : prefs;
     groups.insertBefore(g, anchor);
     groups.insertBefore(el('span', 'tbsep'), g);
-    g.querySelector('#gtbBranch').addEventListener('click', () => tbOpenLog());
-    g.querySelector('#gtbBranch').addEventListener('contextmenu', e => { e.preventDefault(); branchPopup(e.currentTarget); });
+    g.querySelector('#gtbBranch').addEventListener('click', e => { if (TB.repo) branchPopup(e.currentTarget, TB.repo); else tbOpenLog(); });
+    g.querySelector('#gtbBranch').addEventListener('contextmenu', e => { e.preventDefault(); tbOpenLog(); });
     g.querySelector('#gtbPull').addEventListener('click', () => tbPull());
     g.querySelector('#gtbCommit').addEventListener('click', () => tbRequest('commit'));
     g.querySelector('#gtbPush').addEventListener('click', () => tbRequest('push'));
@@ -2397,10 +2430,10 @@ async function tbRefresh(force) {
 }
 const PULL_WHY = {
   detached: 'HEAD is detached — no branch to pull', no_upstream: 'the branch has no upstream (tracking) branch',
-  repo_busy: 'a merge / rebase is in progress', non_ff: 'the branch has diverged from its upstream — not a fast-forward',
-  local_changes: 'local changes would be overwritten — commit or stash them first (AgentO)',
-  auth: 'the remote needs credentials ReadO cannot ask for — sign in once with git (terminal / AgentO), then pull again',
-  busy: 'a pull is already running', timeout: 'git took longer than 60 s and was stopped',
+  repo_busy: 'a merge / rebase is in progress — finish or abort it first (AgentO / terminal); ReadO leaves it as it is',
+  non_ff: 'the branch has diverged from its upstream, so it cannot fast-forward. ReadO does not merge or rebase — ask AgentO to merge / rebase, or pull in a terminal.',
+  local_changes: 'local changes would be overwritten. ReadO never forces this or discards them — commit or stash them first (AgentO), then try again.',  auth: 'the remote needs credentials ReadO cannot ask for — sign in once with git (terminal / AgentO), then pull again',
+  busy: 'a pull / fetch / checkout is already running', timeout: 'git took longer than 60 s and was stopped',
   nothing_to_commit: 'nothing to commit', nothing_to_push: 'nothing to push (↑0)',
 };
 const whyText = d => PULL_WHY[d.error] || errText(d);
@@ -2422,13 +2455,14 @@ function renderTB() {
   btn.title = !avail ? 'Git — ' + errText({ error: (G.info && G.info.reason) || 'no_git' })
     : !repo ? 'Git — the active file is not in a git repository\nClick: Git tool window' + (tw && tw.keys ? ` (${tw.keys})` : '')
     : `${repo.name}: branch ${name}` + (b && b.upstream ? ` → ${b.upstream}  ↑${b.ahead} ↓${b.behind}` : b && b.head ? ' (no upstream)' : '') +
-      (repo.state ? ` · ${repo.state.toUpperCase()}` : '') + `\n${repo.root}\nClick: Log in the Git tool window` + (tw && tw.keys ? ` (${tw.keys})` : '') + ' · right-click: branches';
+      (repo.state ? ` · ${repo.state.toUpperCase()}` : '') + `\n${repo.root}\nClick: branches (checkout, pull, fetch) · right-click: Log` + (tw && tw.keys ? ` (${tw.keys})` : '');
   const set = (id, off, title) => { const x = document.getElementById(id); x.disabled = !!off; x.title = title; };
   const pullWhy = !avail ? 'git not found' : !repo ? 'not in a git repository' : !st ? 'loading…' : !b.head ? PULL_WHY.detached
     : !b.upstream ? PULL_WHY.no_upstream : (st.repo && st.repo.state) ? PULL_WHY.repo_busy : '';
   set('gtbPull', TB.busy || pullWhy, TB.busy ? 'Pull — running…' : 'Pull (git pull --ff-only: fast-forward only)' +
     (b && b.behind ? ` — ↓${b.behind} known` : '') + (pullWhy ? '\n— ' + pullWhy : ''));
   document.getElementById('gtbPull').classList.toggle('busy', TB.busy);
+  if (W) W.head.querySelectorAll('[data-a="pull"],[data-a="fetch"],[data-a="branch"]').forEach(x => { x.disabled = TB.busy; x.classList.toggle('busy', TB.busy); });
   const commitWhy = !repo || !st ? 'not in a git repository' : !commitable.length ? 'no local changes' : '';
   set('gtbCommit', commitWhy, `Commit… — AgentO에 요청(head coach에게 전달)` + (commitable.length ? ` · ${commitable.length} changed file(s)` : '') + (commitWhy ? '\n— ' + commitWhy : ''));
   const pushWhy = !repo || !st ? 'not in a git repository' : !b.head ? PULL_WHY.detached : b.upstream && !b.ahead ? 'nothing to push (↑0)' : '';
@@ -2458,17 +2492,16 @@ async function tbOpenLog() {
   if (!TB.repo && !G.repo) return toggleWindow(true);
   openTab('log');
 }
-// repo-relative paths of files with unsaved editor edits in this repository
-function unsavedIn(repo) {
+// open documents with unsaved editor edits in this repository, and their repo-relative paths
+function dirtyDocsIn(repo) {
   const root = norm(repo.root).toLowerCase() + '/';
-  const out = [];
-  for (const d of docs.values()) {
-    if (!d.dirty) continue;
-    const full = norm(fullPathOf(d.key));
-    if (full.toLowerCase().startsWith(root)) out.push(full.slice(root.length));
-  }
-  return out;
+  return [...docs.values()].filter(d => d.dirty && norm(fullPathOf(d.key)).toLowerCase().startsWith(root));
 }
+function unsavedIn(repo) {
+  const n = norm(repo.root).length + 1;
+  return dirtyDocsIn(repo).map(d => norm(fullPathOf(d.key)).slice(n));
+}
+// TB.busy: a pull / fetch / checkout is running (any repository); its buttons wait
 function tbBusy(on) { TB.busy = on; renderTB(); }
 async function tbAfterChange(repo) {
   await tbRefresh(true);
@@ -2476,8 +2509,31 @@ async function tbAfterChange(repo) {
   else refreshDecor();
   updateBranch();
 }
-async function tbPull() {
-  const repo = TB.repo;
+// After a pull / checkout moved HEAD: the folder tree, the open files (unedited ones re-read,
+// edited ones kept and flagged, deleted ones marked), the git views and the symbol index
+// (rebuilt by the server, gitview._source_changed) show the new sources at once.
+async function refreshSource(repo) {
+  for (let i = 0; i < 60 && _polling; i++) await new Promise(r => setTimeout(r, 50));
+  try { await pollChanges(); } catch (e) {}
+  try { await refreshTreeDir(''); } catch (e) {}
+  try { refreshIndexStatus(); } catch (e) {}
+  const root = norm(repo.root).toLowerCase() + '/';  // changed-line markers + status bar branch against the new HEAD
+  for (const d of docs.values()) if (norm(fullPathOf(d.key)).toLowerCase().startsWith(root)) scheduleGit(d, 0);
+  await tbAfterChange(repo);
+}
+const choiceOf = r => (r && typeof r === 'object' ? r.value : r);
+// a refused / failed pull, fetch or checkout: why, what git said, where the full output is
+async function gitFailDialog(title, d, repo, extraButtons) {
+  const out = String(d.git || d.output || '').trim().split('\n').slice(-14).join('\n');
+  const v = choiceOf(await askChoice(title, whyText(d) + (out ? '\n\ngit:\n' + out : ''),
+    [...(extraButtons || []), { label: 'show Console', value: 'console' }, { label: 'ok', value: 'ok', primary: true }]));
+  if (v === 'console' || v === 'stash') {
+    if (!G.repo || G.repo.root !== repo.root) await selectRepo(repo.root, true);
+    if (v === 'console') openTab('console'); else agentDialog('stashPush');
+  }
+}
+async function tbPull(repo) {
+  repo = repo || TB.repo;
   if (TB.busy || !repo) return;
   tbBusy(true);
   const inf = await api('pullinfo', { repo: repo.root });
@@ -2510,12 +2566,63 @@ async function runPull(repo, unsaved, allow) {
     if (a === 'ok' || (a && a.value === 'ok')) return runPull(repo, unsaved, true);
     return;
   }
-  if (d.ok) showToast(d.updated ? `pulled ${d.commits} commit${d.commits === 1 ? '' : 's'} into ${(d.info || {}).branch || 'the branch'} · ${d.files} file${d.files === 1 ? '' : 's'} changed` : 'pull: already up to date');
-  else {
-    showToast('pull stopped: ' + whyText(d), true);
-    if (G.repo && G.repo.root !== repo.root) await selectRepo(repo.root, true);
-    openTab('console');
+  if (d.ok && d.updated) {
+    showToast(`pulled ${d.commits} commit${d.commits === 1 ? '' : 's'} into ${(d.info || {}).branch || 'the branch'} · ${d.files} file${d.files === 1 ? '' : 's'} changed`);
+    return refreshSource(repo);
   }
+  if (d.ok) showToast('pull: already up to date');
+  else await gitFailDialog('Pull stopped — nothing changed', d, repo, d.error === 'local_changes' ? [{ label: 'Stash Changes… (AgentO)', value: 'stash' }] : []);
+  await tbAfterChange(repo);
+}
+// Fetch: git fetch --prune (remote-tracking branches only; the working tree stays as it is)
+async function gitFetch(repo) {
+  repo = repo || TB.repo;
+  if (TB.busy || !repo) return;
+  tbBusy(true);
+  let r;
+  try { r = await postJson('/api/git/fetch', { repo: repo.root }); }
+  finally { tbBusy(false); }
+  const d = r.data || {};
+  if (d.ok) showToast(`fetched${d.remote ? ' ' + d.remote : ''}` + (d.upstream ? ` · ${d.upstream}: ↑${d.ahead} ↓${d.behind}` : '') +
+    (d.behind ? ' — Pull brings them in' : ''));
+  else await gitFailDialog('Fetch failed', d, repo);
+  await tbAfterChange(repo);
+}
+// Checkout: git switch to a local branch, or a new local branch tracking a remote-only one
+// (gitview.checkout). Never forced: when local changes are in the way git's refusal is shown.
+async function gitCheckout(repo, ref) {
+  if (TB.busy || !repo) return;
+  const name = refName(ref);
+  const dirty = dirtyDocsIn(repo);
+  if (dirty.length) {
+    const v = choiceOf(await askChoice('Unsaved edits — check out ' + name + '?',
+      `${dirty.length} file(s) in ${repo.name} have unsaved edits:\n` + dirty.slice(0, 12).map(d => '  ' + d.key).join('\n') +
+      (dirty.length > 12 ? `\n  … ${dirty.length - 12} more` : '') +
+      '\n\nSave them first? Saved edits are local changes: git keeps them across the checkout, or refuses it when the other branch changes the same files.',
+      [{ label: 'save all and check out', value: 'save', primary: true }, { label: 'cancel', value: 'cancel' }]));
+    if (v !== 'save') return;
+    for (const d of dirty) if (!(await saveDoc(d)) || d.dirty) return showToast('checkout cancelled: ' + baseName(d.key) + ' was not saved', true);
+  }
+  tbBusy(true);
+  let r;
+  try { r = await postJson('/api/git/checkout', { repo: repo.root, ref, unsaved: unsavedIn(repo) }); }
+  finally { tbBusy(false); }
+  const d = r.data || {};
+  if (d.ok && !d.updated) return showToast(`already on ${d.branch}`);
+  if (d.ok) {
+    showToast(`switched to ${d.branch}` + (d.created ? ` (new local branch tracking ${d.tracking})` : '') + ` · ${d.files} file${d.files === 1 ? '' : 's'} differ from ${d.from || 'before'}`);
+    return refreshSource(repo);
+  }
+  if (d.error === 'local_exists') {
+    const v = choiceOf(await askChoice('Check out ' + name,
+      `A local branch ${d.branch} already exists and ${d.upstream ? 'tracks ' + d.upstream : 'tracks no remote branch'}, not ${d.remote_branch}.\nReadO does not reset or rename it.`,
+      [{ label: 'check out local ' + d.branch, value: 'local', primary: true }, { label: 'cancel', value: 'cancel' }]));
+    if (v === 'local') return gitCheckout(repo, 'refs/heads/' + d.branch);
+    return;
+  }
+  if (d.need_confirm) return showToast('checkout stopped: save the edited files first', true);
+  await gitFailDialog('Checkout of ' + name + ' refused — nothing changed', d, repo,
+    d.error === 'local_changes' ? [{ label: 'Stash Changes… (AgentO)', value: 'stash' }] : []);
   await tbAfterChange(repo);
 }
 // Commit / Push: ReadO never runs these — a request goes to AgentO (agento://dispatch, docs/GIT-DESIGN.md §14)

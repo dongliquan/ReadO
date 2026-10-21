@@ -161,6 +161,7 @@ body.theme-dark .gw-banner { background: #3d2f1c; color: #f0c27a; border-color: 
 .gpick .it:hover, .gpick .it.act { background: var(--hover); }
 .gpick .it .nm { overflow: hidden; text-overflow: ellipsis; }
 .gpick .it .hint { margin-left: auto; color: var(--text-mute); font: 10.5px var(--mono); }
+.gpick .it.cur .nm { font-weight: 700; color: var(--accent); }
 .gpick .hd { padding: 6px 10px 2px; color: var(--text-mute); font-size: 11px; font-weight: 700; }
 .gpick .ft { border-top: 1px solid var(--border); padding: 5px 8px; display: flex; gap: 6px; justify-content: flex-end; }
 .gpick button, .gw-bar button, .gw-banner button, .gx-dlg button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 4px; padding: 2px 9px; cursor: pointer; font-size: 12px; }

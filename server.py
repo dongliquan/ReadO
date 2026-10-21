@@ -515,6 +515,19 @@ def _index_reset():
         _file_query_cache.clear()
 
 
+def source_changed():
+    """Many files changed under the folder at once (git pull / checkout): the file list and
+    the symbol index catch up in the background, the old ones stay usable meanwhile."""
+    with _index_lock:
+        _index["built"] = 0.0
+        built = _index["base"] is not None and _index["base"] == base_root()
+    with _file_query_cache_lock:
+        _file_query_cache.clear()
+    if built:  # else the first search builds it anyway
+        _ensure_index()
+    ensure_tags(force=True)
+
+
 def _substring_score(path: str, term: str):
     """Substring (case-insensitive) match like IntelliJ Search Everywhere.
     Supports '*' wildcard. Returns (score, [match start indices in full path]) or None."""

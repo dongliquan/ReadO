@@ -119,6 +119,89 @@ BINARY_EXTS = frozenset("""
 .accdb .dbf .pak .swf .fla .blend .fbx .glb .unitypackage .keystore .jks .p12 .pfx .der
 """.split())
 
+# Left out of Find / Replace in Files while the search box's "default excludes"
+# toggle is on (with settings.search_ignored): IDE folders, minified / bundled
+# output, source maps, lock files and IDE shelf files - noise in a text search.
+# Quick Open keeps them so they can still be opened by name.
+SEARCH_DEFAULT_EXCLUDES = (".idea", ".vs", "*.min.js", "*.min.css", "*.min.mjs", "*.bundle.js", "*.chunk.js",
+                           "*.map", "*.shelved.path", "*.lock", "package-lock.json", "pnpm-lock.yaml",
+                           "npm-shrinkwrap.json")
+EXCLUDE_MAX = 50           # patterns per search
+EXCLUDE_MAX_LEN = 200      # characters per pattern
+
+
+def parse_excludes(text):
+    """The search box's exclude patterns (comma or newline separated globs,
+    matched from the open folder: `dist/**`, `src/gen`, `*.min.js`) ->
+    (patterns, None) or (None, error). Refuses what could leave the folder or
+    read as an rg option: absolute paths, drive letters, `..`, a leading - or !."""
+    out = []
+    for raw in re.split(r"[,\r\n]", str(text or "")):
+        p = raw.strip().replace("\\", "/")
+        if not p:
+            continue
+        if len(out) >= EXCLUDE_MAX:
+            return None, f"too many exclude patterns (maximum {EXCLUDE_MAX})"
+        if len(p) > EXCLUDE_MAX_LEN:
+            return None, f"exclude pattern is too long: {p[:40]}…"
+        if any(ord(ch) < 32 for ch in p) or p[0] in "-!" or ":" in p or ".." in p.split("/"):
+            return None, f"exclude pattern not allowed: {p}"
+        p = p.lstrip("/")  # "/dist" = from the open folder, which slash patterns already are
+        if p.endswith("/"):
+            p += "**"
+        if not p or p.count("[") != p.count("]") or p.count("{") != p.count("}"):
+            return None, f"exclude pattern not allowed: {raw.strip()}"
+        out.append(p)
+    return out, None
+
+
+def _glob_rx(pat):
+    """One exclude glob -> regex over a /-path (** any depth, * ? [] {a,b} within a segment)."""
+    rx, i = "", 0
+    while i < len(pat):
+        c = pat[i]
+        if pat.startswith("**/", i):
+            rx += "(?:.*/)?"; i += 3; continue
+        if pat.startswith("**", i):
+            rx += ".*"; i += 2; continue
+        if c == "*":
+            rx += "[^/]*"
+        elif c == "?":
+            rx += "[^/]"
+        elif c == "[":
+            j = pat.find("]", i + 1)
+            body = pat[i + 1:j].replace("\\", "\\\\")
+            rx += "[^" + body[1:] + "]" if body[:1] == "!" else "[" + body + "]"
+            i = j + 1; continue
+        elif c == "{":
+            j = pat.find("}", i + 1)
+            rx += "(?:" + "|".join(re.escape(x) for x in pat[i + 1:j].split(",")) + ")"
+            i = j + 1; continue
+        else:
+            rx += re.escape(c)
+        i += 1
+    return rx
+
+
+def _exclude_matcher(patterns):
+    """rel path -> excluded? Like rg's globs: a pattern without / matches a file
+    or folder name at any depth, one with / the path from the open folder (the
+    file itself or any folder above it). None when there is nothing to match."""
+    def rx(pats):
+        return re.compile("(?:" + "|".join(f"(?:{_glob_rx(p)})" for p in pats) + r")\Z", re.IGNORECASE) if pats else None
+
+    name_re = rx([p for p in patterns if "/" not in p])
+    path_re = rx([p for p in patterns if "/" in p])
+    if not name_re and not path_re:
+        return None
+
+    def excluded(rel):
+        parts = rel.split("/")
+        if name_re and any(name_re.match(x) for x in parts):
+            return True
+        return bool(path_re) and any(path_re.match("/".join(parts[:k])) for k in range(1, len(parts) + 1))
+    return excluded
+
 
 # ----- name filters (ignored patterns) -----
 # Precomputed once per settings value instead of on every call: these run for
@@ -431,8 +514,9 @@ def _gi_on():
     return bool(SETTINGS.get("respect_gitignore"))
 
 
-def _walk_files(base):
-    """Relative paths of every visible text file under base (os.walk order)."""
+def _walk_files(base, search_excluded=True):
+    """Relative paths of every visible text file under base (os.walk order).
+    search_excluded=False keeps what settings.search_ignored leaves out."""
     out = []
     stack = [base]
     gi = _gi_on()
@@ -453,13 +537,13 @@ def _walk_files(base):
                     continue
                 if is_dir:
                     # like os.walk(followlinks=False): list symlinked dirs, don't descend
-                    if not _is_ignored(name) and not _is_search_ignored(name) and not e.is_symlink() \
+                    if not _is_ignored(name) and not (search_excluded and _is_search_ignored(name)) and not e.is_symlink() \
                             and not (gi and gitignored(e.path, True, gi_memo, gi_root)):
                         subdirs.append(e.path)
                     continue
                 if e.is_symlink():
                     continue
-                if _is_ignored(name) or _is_search_ignored(name) or not _is_text_file(name):
+                if _is_ignored(name) or (search_excluded and _is_search_ignored(name)) or not _is_text_file(name):
                     continue
                 if gi and gitignored(e.path, False, gi_memo, gi_root):
                     continue
@@ -987,7 +1071,12 @@ def _byte_to_char(line_text, raw, off):
     return len(raw[:off].decode("utf-8", errors="ignore"))
 
 
-def _rg_common_args(glob):
+def _rg_common_args(glob, excludes=(), defaults=None):
+    """defaults=None: the settings' ignored + search_ignored (go to definition);
+    True / False: Find / Replace in Files with the search box's "default
+    excludes" toggle on (search_ignored + SEARCH_DEFAULT_EXCLUDES) or off, plus
+    its exclude patterns. Slash patterns are matched from rg's working folder,
+    so those callers run rg in the open folder (_rg_scope_arg)."""
     # --no-ignore/--hidden: ReadO's own "ignored" setting decides what is
     # searched (as in the Python fallback), not .gitignore or dot-file rules;
     # with respect_gitignore on, .gitignore / .git/info/exclude count too
@@ -1003,12 +1092,30 @@ def _rg_common_args(glob):
     # known binary types, hidden and search-excluded names are left out.
     # Excludes come last so they win over the include globs.
     args += ["--iglob", "!*{" + ",".join(sorted(BINARY_EXTS)) + "}"]
-    for ig in list(SETTINGS.get("ignored") or []) + list(SETTINGS.get("search_ignored") or []):
+    skip = list(SETTINGS.get("ignored") or [])
+    if defaults is not False:
+        skip += list(SETTINGS.get("search_ignored") or [])
+    if defaults:
+        skip += SEARCH_DEFAULT_EXCLUDES
+    for ig in skip + list(excludes or ()):
         args += ["--iglob", "!" + ig]
     return args
 
 
-def _rg_events(args, kind, gen):
+def _rg_scope_arg(base, scope_root):
+    """scope_root as rg's path argument when rg runs in base: relative, so
+    slash globs anchor at the open folder, and behind ./ so a folder named
+    "-x" is never read as an option."""
+    rel = os.path.relpath(scope_root, base)
+    return "." if rel == "." else "./" + rel.replace("\\", "/")
+
+
+def _rg_rel(path, base):
+    """An rg output path (relative to its working folder, or absolute) -> rel path."""
+    return os.path.relpath(os.path.join(base, path), base).replace("\\", "/")
+
+
+def _rg_events(args, kind, gen, cwd=None):
     """Run ripgrep and yield its JSON events as they stream in.
 
     Stops (and kills rg) when the consumer stops iterating, when a newer
@@ -1017,7 +1124,7 @@ def _rg_events(args, kind, gen):
     try:
         proc = subprocess.Popen(
             args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW,
+            stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW, cwd=cwd,
         )
     except OSError:
         yield {"type": "_exit", "code": -1}
@@ -1045,16 +1152,16 @@ def _rg_events(args, kind, gen):
 
 
 def _ripgrep_search(query, case_sensitive, regex, whole_word, scope_root, base, glob,
-                    context, max_results, gen):
+                    context, max_results, gen, excludes=(), defaults=True):
     rg = _rg_path()
     if not rg:
         return None
-    args = [rg] + _rg_common_args(glob) + ["--max-count", "100"]
+    args = [rg] + _rg_common_args(glob, excludes, defaults) + ["--max-count", "100"]
     if not case_sensitive: args.append("-i")
     if whole_word: args.append("-w")
     if not regex: args.append("-F")
     if context > 0: args += ["--context", str(context)]
-    args += ["-e", query, scope_root]
+    args += ["-e", query, _rg_scope_arg(base, scope_root)]
 
     results = []
     files_seen = set()
@@ -1066,7 +1173,7 @@ def _ripgrep_search(query, case_sensitive, regex, whole_word, scope_root, base, 
     waiting = []
     full = False          # max_results reached: only finish pending "after"s
     exit_code = None
-    events = _rg_events(args, "search", gen)
+    events = _rg_events(args, "search", gen, cwd=base)
     for obj in events:
         t = obj.get("type")
         d = obj.get("data") or {}
@@ -1085,7 +1192,7 @@ def _ripgrep_search(query, case_sensitive, regex, whole_word, scope_root, base, 
             if t == "match" and not full:
                 path = _rg_decode(d.get("path"))[0]
                 try:
-                    rel = os.path.relpath(path, base).replace("\\", "/")
+                    rel = _rg_rel(path, base)
                 except ValueError:
                     rel = path
                 submatches = d.get("submatches") or []
@@ -1186,6 +1293,23 @@ def _scoped_index(base, scope_root):
         yield rel, os.path.join(base, rel.replace("/", os.sep))
 
 
+def _search_candidates(base, scope_root, excludes, defaults):
+    """Files a Find / Replace in Files scan without ripgrep looks at: the index
+    (which already skips search_ignored), or with the defaults off a fresh walk
+    that keeps them; then the default and typed exclude patterns."""
+    if defaults:
+        pairs = _scoped_index(base, scope_root)
+    else:
+        rel_scope = os.path.relpath(scope_root, base).replace("\\", "/")
+        prefix = "" if rel_scope == "." else rel_scope + "/"
+        pairs = ((prefix + rel, os.path.join(scope_root, rel.replace("/", os.sep)))
+                 for rel in _walk_files(scope_root, search_excluded=False))
+    skip = _exclude_matcher(list(SEARCH_DEFAULT_EXCLUDES if defaults else ()) + list(excludes))
+    for rel, full in pairs:
+        if not (skip and skip(rel)):
+            yield rel, full
+
+
 def _compile_query(query, case_sensitive, regex, whole_word):
     """Python pattern for a Find-in-Files query: (pattern, None) or (None, error)."""
     pat_str = query if regex else re.escape(query)
@@ -1206,11 +1330,15 @@ SEARCH_MORE_MAX = 20_000  # "show more" in Find in Files raises the cap up to th
 
 
 def find_in_files(query: str, case_sensitive: bool, regex: bool, whole_word: bool,
-                  scope: str = "", glob: str = "", context: int = 2, limit: int = 0):
+                  scope: str = "", glob: str = "", context: int = 2, limit: int = 0,
+                  exclude: str = "", default_excludes: bool = True):
     base = base_root()
     scope_root = _safe_join(base, scope) if scope else base
     if not scope_root or not os.path.isdir(scope_root):
         return {"error": "invalid scope", "results": []}
+    excludes, err = parse_excludes(exclude)
+    if err:
+        return {"error": err, "results": []}
     if not query:
         return {"results": [], "total": 0}
     if len(query) > 512:
@@ -1241,7 +1369,7 @@ def find_in_files(query: str, case_sensitive: bool, regex: bool, whole_word: boo
 
     # Fast path: ripgrep (bundled in vendor/rg, or on PATH)
     rg_res = _ripgrep_search(query, case_sensitive, regex, whole_word,
-                              scope_root, base, glob, context, max_results, gen)
+                              scope_root, base, glob, context, max_results, gen, excludes, default_excludes)
     if rg_res is not None:
         return rg_res
 
@@ -1252,7 +1380,7 @@ def find_in_files(query: str, case_sensitive: bool, regex: bool, whole_word: boo
         if needle[1] and len(needle[0]) != len(query):
             needle = None  # lower() changed the length (rare Unicode): skip prefilter
     tasks = []
-    for rel, full in _scoped_index(base, scope_root):
+    for rel, full in _search_candidates(base, scope_root, excludes, default_excludes):
         fname = rel.rsplit("/", 1)[-1]
         if glob_re and not glob_re.match(fname):
             continue
@@ -3498,6 +3626,11 @@ def _replace_query(data):
     scope_root = _safe_join(base, scope) if scope else base
     if not scope_root or not os.path.isdir(scope_root):
         return None, None, None, "invalid scope"
+    if not isinstance(data.get("exclude") or "", str):
+        return None, None, None, "exclude must be text"
+    err = parse_excludes(data.get("exclude"))[1]
+    if err:
+        return None, None, None, err
     return pat, _make_replacer(replacement, regex), scope_root, None
 
 
@@ -3505,24 +3638,26 @@ def _replace_candidates(data, pat, scope_root):
     """Relative paths of files that may contain a match (rg -l, or a scan)."""
     base = base_root()
     glob = data.get("glob") or ""
+    excludes = parse_excludes(data.get("exclude"))[0] or []
+    defaults = data.get("default_excludes") is not False
     rg = _rg_path()
     if rg:
-        args = [rg] + [a for a in _rg_common_args(glob) if a != "--json"] + ["--files-with-matches"]
+        args = [rg] + [a for a in _rg_common_args(glob, excludes, defaults) if a != "--json"] + ["--files-with-matches"]
         if not data.get("case"):
             args.append("-i")
         if data.get("word"):
             args.append("-w")
         if not data.get("regex"):
             args.append("-F")
-        args += ["-e", data["q"], scope_root]
+        args += ["-e", data["q"], _rg_scope_arg(base, scope_root)]
         try:
-            proc = subprocess.run(args, capture_output=True, timeout=RG_TIMEOUT,
+            proc = subprocess.run(args, capture_output=True, timeout=RG_TIMEOUT, cwd=base,
                                   stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
             if proc.returncode in (0, 1):
                 out = []
                 for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
                     try:
-                        out.append(os.path.relpath(line.strip(), base).replace("\\", "/"))
+                        out.append(_rg_rel(line.strip(), base))
                     except ValueError:
                         continue
                 return sorted(out, key=str.lower)
@@ -3534,7 +3669,7 @@ def _replace_candidates(data, pat, scope_root):
                 for g in glob.split(",") if g.strip()]
         glob_re = re.compile("|".join(pats), re.IGNORECASE) if pats else None
     out = []
-    for rel, full in _scoped_index(base, scope_root):
+    for rel, full in _search_candidates(base, scope_root, excludes, defaults):
         if glob_re and not glob_re.match(rel.rsplit("/", 1)[-1]):
             continue
         text = _get_content(full)
@@ -4028,6 +4163,8 @@ class Handler(BaseHTTPRequestHandler):
                     glob=q.get("glob", ""),
                     context=ctx,
                     limit=limit,
+                    exclude=q.get("exclude", ""),
+                    default_excludes=q.get("defexcl", "1") != "0",
                 )
             finally:
                 _SEARCH_GATE.release()

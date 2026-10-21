@@ -481,7 +481,10 @@
   .fd .fif-opts .fd-tg:has(input:checked), .fd .fif-opts .fd-tg.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
     border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
   .fd .fif-opts .fd-sep { width: 1px; height: 16px; background: var(--border); }
-  .fd .fif-opts #fifGlob { flex: 1; max-width: none; min-width: 120px; }
+  .fd .fif-opts #fifGlob, .fd .fif-opts #fifExcl { flex: 1; max-width: none; min-width: 120px; }
+  .fd-list .res-file .fd-excl { display: none; padding: 0 6px; border-radius: 3px; color: var(--text-mute); font-weight: 400; font-size: 11px; }
+  .fd-list .res-file:hover .fd-excl { display: inline; }
+  .fd-list .res-file .fd-excl:hover { color: var(--accent); background: var(--bg); }
   .fd .fif-opts select { max-width: 200px; }
   .fd .fif-opts .fd-ctx input { width: 40px; }
   .fd .fif-repl { padding: 6px 12px; border-bottom: 1px solid var(--border); }
@@ -864,6 +867,8 @@
       <label class="fd-tg" title="Regex (Alt+X)"><input type="checkbox" id="fifRegex" />.*</label>
       <span class="fd-sep"></span>
       <input type="text" id="fifGlob" class="fif-glob" placeholder="file mask: *.java, src/**" title="files to include — comma-separated globs; empty = every text file" autocomplete="off" spellcheck="false" />
+      <input type="text" id="fifExcl" class="fif-glob" placeholder="exclude: dist/**, *.min.js" title="files and folders to leave out — comma-separated globs; a name (*.min.js, gen) matches at any depth, a path (src/gen/**) from the open folder" autocomplete="off" spellcheck="false" />
+      <label class="fd-tg" title="default excludes: the folders from Settings (build, dist, target, out, bin, obj, coverage …), .idea, .vs, minified and bundled js/css, source maps, lock files, *.shelved.path — always left out: the hidden names from Settings and binary files"><input type="checkbox" id="fifDefExcl" checked />Defaults</label>
       <select id="fifScope" title="search in">
         <option value="">whole folder</option>
       </select>
@@ -2064,6 +2069,8 @@ function replaceRequest() {
     regex: document.getElementById('fifRegex').checked,
     scope: fifScopeValue(),
     glob: document.getElementById('fifGlob').value.trim(),
+    exclude: document.getElementById('fifExcl').value.trim(),
+    default_excludes: document.getElementById('fifDefExcl').checked,
   };
 }
 async function previewReplace() {
@@ -2870,7 +2877,7 @@ let _fifTerm = '';
 let _fifFind = null;      // {term, regex, caseS, word} of the shown results
 
 let _fifMax = 0;           // 0: the settings' cap; "show more" raises it
-const FIF_OPT_IDS = { caseS: 'fifCase', word: 'fifWord', regex: 'fifRegex', glob: 'fifGlob', ctx: 'fifCtx', scope: 'fifScope' };
+const FIF_OPT_IDS = { caseS: 'fifCase', word: 'fifWord', regex: 'fifRegex', glob: 'fifGlob', exclude: 'fifExcl', defExcl: 'fifDefExcl', ctx: 'fifCtx', scope: 'fifScope' };
 function restoreFIFOpts() {  // STATE.fifOpts: the option bar as it was last left
   const o = STATE.fifOpts && typeof STATE.fifOpts === 'object' ? STATE.fifOpts : {};
   for (const [k, id] of Object.entries(FIF_OPT_IDS)) {
@@ -2956,11 +2963,13 @@ async function runFIF() {
   const regex = document.getElementById('fifRegex').checked ? 1 : 0;
   const word = document.getElementById('fifWord').checked ? 1 : 0;
   const glob = document.getElementById('fifGlob').value.trim();
+  const exclude = document.getElementById('fifExcl').value.trim();
+  const defExcl = document.getElementById('fifDefExcl').checked ? 1 : 0;
   const scope = fifScopeValue();
   const ctx = parseInt(document.getElementById('fifCtx').value) || 0;
   const find = { term: q, regex: !!regex, caseS: !!caseS, word: !!word };
   const url = `/api/search?q=${encodeURIComponent(q)}&case=${caseS}&regex=${regex}&word=${word}&glob=${encodeURIComponent(glob)}&scope=${encodeURIComponent(scope)}&ctx=${ctx}` +
-    (_fifMax ? `&max=${_fifMax}` : '');
+    `&exclude=${encodeURIComponent(exclude)}&defexcl=${defExcl}` + (_fifMax ? `&max=${_fifMax}` : '');
   summary.textContent = 'searching...';
   if (!_fifMax) resultsEl.innerHTML = '';  // "show more" keeps the list until the longer one arrives
   previewEl.innerHTML = '<div class="qo-empty">searching...</div>';
@@ -3014,9 +3023,13 @@ function renderFIFResults(data, term) {
     fh.className = 'res-file';
     const cut = file.lastIndexOf('/');
     fh.innerHTML = fileBadge(file) + `<span class="qo-name">${escapeHtml(file.slice(cut + 1))}</span>` +
-      (cut > 0 ? `<span class="qo-dir">${escapeHtml(file.slice(0, cut))}</span>` : '') + `<span class="cnt">${byFile[file].length}</span>`;
+      (cut > 0 ? `<span class="qo-dir">${escapeHtml(file.slice(0, cut))}</span>` : '') + `<span class="cnt">${byFile[file].length}</span>` +
+      (cut > 0 ? `<span class="fd-excl" title="exclude this folder from the search (${escapeHtml(file.slice(0, cut))}/**)">⊘ folder</span>` : '');
     fh.title = file;
-    fh.onclick = e => openFIFHit(byFile[file][0], e.ctrlKey || e.metaKey);
+    fh.onclick = e => {
+      if (e.target.closest('.fd-excl')) addFIFExclude(file.slice(0, cut) + '/**');
+      else openFIFHit(byFile[file][0], e.ctrlKey || e.metaKey);
+    };
     c.appendChild(fh);
     for (const r of byFile[file]) {
       const row = document.createElement('div');
@@ -3042,6 +3055,17 @@ function renderFIFResults(data, term) {
     c.appendChild(more);
   }
   updateFIFSelection();
+}
+// a result file's "⊘ folder": add its folder to the exclude patterns and search again
+function addFIFExclude(pat) {
+  const e = document.getElementById('fifExcl');
+  const cur = e.value.split(',').map(s => s.trim()).filter(Boolean);
+  if (!cur.includes(pat)) cur.push(pat);
+  e.value = cur.join(', ');
+  _fifMax = 0;
+  saveFIFOpts();
+  runFIF();
+  document.getElementById('fifQ').focus();
 }
 // Enter / click: open the hit; Ctrl+Enter / Ctrl+click: in the other split pane
 function openFIFHit(r, beside) {
@@ -3140,12 +3164,12 @@ document.getElementById('fifQ').addEventListener('keydown', e => {
     }
   }
 });
-document.getElementById('fifGlob').addEventListener('input', () => {
+['fifGlob', 'fifExcl'].forEach(id => document.getElementById(id).addEventListener('input', () => {
   if (_fifTimer) clearTimeout(_fifTimer);
   _fifMax = 0;
   _fifTimer = setTimeout(() => { saveFIFOpts(); runFIF(); }, 300);
-});
-['fifCase','fifWord','fifRegex','fifScope','fifCtx'].forEach(id => {
+}));
+['fifCase','fifWord','fifRegex','fifDefExcl','fifScope','fifCtx'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => { _fifMax = 0; saveFIFOpts(); runFIF(); });
 });
 

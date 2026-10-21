@@ -129,6 +129,18 @@ Changes since 0.1.0, not yet given a version number.
   words, regex, file mask, scope, context, Replace) kept between runs, `Alt+C` / `Alt+W` / `Alt+X`, recent searches when
   the box is empty, **show more** past the result cap (up to 20,000), `Ctrl+Enter` / `Ctrl+click` opens beside.
 - The title-bar search box names Find File and Find in Files and shortens its label on narrow windows.
+- **Find in Files searches the sources, not the build output and noise**:
+  - **Defaults** toggle (on): the folders from Settings (build, dist, target, out, bin, obj, coverage …), `.idea`,
+    `.vs`, minified / bundled js and css, source maps (`*.map`), lock files and IDE shelf files (`*.shelved.path`)
+    are left out. Off: they are searched too. Hidden names from Settings and binary files always stay out;
+    `.gitignore` rules count when **Hide .gitignore'd Files** is on (Settings or the Preferences menu).
+  - **exclude** box: comma-separated globs. A name (`*.min.js`, `gen`) matches at any depth, a path (`dist/**`,
+    `src/gen`) is matched from the open folder. Patterns that could leave the folder or read as a ripgrep option
+    (`..`, absolute paths, drive letters, a leading `-` or `!`) are refused.
+  - **⊘ folder** on a result file (on hover) adds its folder to the excludes and searches again.
+  - Both are kept between runs and also apply to Replace in Files. Find File (`Ctrl+P`) keeps the folder rules it
+    already shared with search but not the file patterns, so `package-lock.json` or a `.map` can still be opened by
+    name.
 
 ### Toolbar and Git
 

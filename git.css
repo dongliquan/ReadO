@@ -305,3 +305,6 @@ body.theme-dark .gtb-dlg .warn { color: #f0c27a; }
 .rd-find button:hover { background: var(--hover); color: var(--text); }
 ::highlight(rd-find) { background-color: rgba(250, 204, 21, .45); color: inherit; }
 ::highlight(rd-find-cur) { background-color: #f59e0b; color: #111; }
+/* line-ending-only changes (shown on request) and the toggles for them */
+.k-eol { opacity: .55; }
+.gw-bar button.tg.on, .gdm-head button[data-a="eol"].on { color: var(--accent); border-color: var(--accent); }

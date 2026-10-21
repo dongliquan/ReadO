@@ -145,6 +145,11 @@ Changes since 0.1.0, not yet given a version number.
     is shown with a stash hint.
   - Afterwards the file tree, open files (unedited ones re-read, edited ones kept and flagged, deleted ones marked),
     the symbol index, the Git window and the status bar show the new sources.
+- **Line-ending-only changes are passed over**: files whose only difference from HEAD is CRLF ↔ LF are hidden in
+  Local Changes, the counts and the tree colours (toggle **Show line-ending-only changes**). Diffs have **Ignore line
+  endings** (on by default; off draws CR as ␍) and name differing line endings in the header. When such a file blocks
+  a pull or checkout, the dialog says so and how to clear it — ReadO changes neither the file nor `core.autocrlf` /
+  `.gitattributes`.
 - The breadcrumb shows the repository folder as a chip; the settings gear moved to the bottom of the tool strip.
 - Fixed: the Git icon on the tool strip did nothing when the open folder holds repositories but is not one itself;
   it now opens the Git tool window like the Git menu.

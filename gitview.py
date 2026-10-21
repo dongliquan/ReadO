@@ -23,7 +23,7 @@ Endpoints (GET, read guard; POST via server.write_api):
   GET  /api/git/info?path=|repo=        -> git availability + repo of a file / folder
   GET  /api/git/repos                   -> repositories at / under the working folder
   GET  /api/git/status?repo=&fresh=     -> branch + changed files (porcelain v2)
-  GET  /api/git/decor?dir=..            -> tree colours for expanded folders
+  GET  /api/git/decor?dir=..&eol=       -> tree colours for expanded folders (eol=1: line-ending-only too)
   GET  /api/git/fp?repo=                -> cheap fingerprint (HEAD / index / refs mtimes)
   GET  /api/git/refs?repo=              -> local / remote branches, tags
   GET  /api/git/authors?repo=           -> recent authors (User filter)
@@ -63,7 +63,7 @@ BLAME_MAX = 8_000_000
 
 # Sub-commands ReadO may run. Anything else is refused in run().
 READ_ONLY = frozenset("""version rev-parse status log show cat-file diff-tree blame for-each-ref
-config symbolic-ref ls-files rev-list merge-base""".split())
+config symbolic-ref ls-files rev-list merge-base diff""".split())
 # The exceptions (Pull / Fetch / Checkout, see pull()): fetch, a fast-forward-only merge and
 # git switch. Only pull() / fetch() / checkout() run these, with fixed options; run() still
 # refuses them.
@@ -216,6 +216,8 @@ def _check_allowed(args, write=False):
         return
     if not args or args[0] not in READ_ONLY:
         raise GitError("bad_arg", "not a read-only git command: " + (args[0] if args else ""))
+    if args[0] == "diff" and any(a.startswith(("--output", "--ext-diff", "--textconv")) for a in args):
+        raise GitError("bad_arg", "diff: no output file / external programs")
     if args[0] == "config" and not any(a in ("--get", "--get-regexp", "--get-all", "--list", "-l") for a in args):
         raise GitError("bad_arg", "config: read options only")
     if args[0] == "config" and any(a.startswith("-") and a not in _CONFIG_READ for a in args[1:]):
@@ -633,18 +635,112 @@ def _status_run(top, fp):
         elif t == "?":
             files.append({"path": r[2:], "x": "?", "y": "?", "kind": "untracked",
                           "staged": False, "unstaged": True, "sub": False})
-    data = {"repo": _summary(top), "branch": branch, "files": files, "truncated": truncated, "ms": ms}
+    eol_ms = _mark_eol(top, files, branch["oid"])
+    data = {"repo": _summary(top), "branch": branch, "files": files, "truncated": truncated, "ms": ms,
+            "eol_only": sum(1 for f in files if f.get("eol")), "eol_ms": eol_ms}
     with _status_lock:
         _status_cache[top] = (time.time(), fp, data)
     return data
+
+
+# ----- line-ending-only changes -----
+# A file git calls modified whose text differs from HEAD only in CR at line ends (an editor or
+# core.autocrlf / .gitattributes rewrote CRLF <-> LF) gets "eol": true. The page hides those by
+# default (Local Changes, counts, tree colours). Judged by `git diff HEAD --numstat
+# --ignore-cr-at-eol`, which leaves such files out; only for files whose index or working tree
+# equals HEAD on one side (x or y "."), so a staged real change is never hidden. Results are kept
+# per file (HEAD, mtime, size): a status poll re-checks only files that changed.
+EOL_CHECK_MAX = 3000   # files checked per status run (the rest: shown as changed)
+EOL_ARGS_MAX = 24000   # characters of paths per git call (Windows command line limit 32k)
+_eol_cache = {}        # top -> {path: ((head, mtime_ns, size), eol_only)}
+
+
+def _mark_eol(top, files, head):
+    if not head:
+        return 0
+    t0 = time.time()
+    cache = _eol_cache.setdefault(top, {})
+    todo, keys = [], {}
+    for f in files:
+        if f["kind"] != "modified" or f["sub"] or "." not in (f["x"], f["y"]):
+            continue
+        try:
+            stt = os.stat(os.path.join(top, f["path"].replace("/", os.sep)))
+        except OSError:
+            continue
+        k = (head, stt.st_mtime_ns, stt.st_size)
+        hit = cache.get(f["path"])
+        if hit and hit[0] == k:
+            f["eol"] = hit[1]
+        elif len(todo) < EOL_CHECK_MAX:
+            todo.append(f)
+            keys[f["path"]] = k
+    batch, size = [], 0
+    for f in todo + [None]:
+        if f is not None and size + len(f["path"]) < EOL_ARGS_MAX:
+            batch.append(f); size += len(f["path"]) + 3
+            continue
+        if batch:
+            try:
+                out = run(["diff", "HEAD", "--numstat", "--ignore-cr-at-eol", "--no-textconv", "--no-ext-diff",
+                           "--no-renames", "-z", "--"] + [x["path"] for x in batch], top, timeout=30)
+                listed = {r.split("\t", 2)[2] for r in out.decode("utf-8", "replace").split("\0") if r.count("\t") >= 2}
+                for x in batch:
+                    x["eol"] = x["path"] not in listed
+                    cache[x["path"]] = (keys[x["path"]], x["eol"])
+            except GitError:
+                pass
+        batch, size = ([f], len(f["path"]) + 3) if f is not None else ([], 0)
+    if len(cache) > 20000:
+        cache.clear()
+    for f in files:
+        if not f.get("eol"):
+            f.pop("eol", None)
+    return int((time.time() - t0) * 1000)
+
+
+def eol_only(top):
+    """Repo-relative paths git calls changed whose difference is only line endings."""
+    return {f["path"] for f in status(top, fresh=True)["files"] if f.get("eol")}
+
+
+_WOULD = re.compile(r"would be overwritten by \w+:\s*\n((?:\t.*\n?)+)")
+
+
+def _blocking_files(text):
+    """Files git names in "Your local changes … would be overwritten by merge / checkout"."""
+    out = []
+    for m in _WOULD.finditer(text.replace("\r\n", "\n")):
+        out += [ln.strip() for ln in m.group(1).splitlines() if ln.strip()]
+    return out
+
+
+def _eol_note(top, text, res):
+    """A refused pull / checkout: which of the files in the way differ only in line endings."""
+    files = _blocking_files(text)
+    if not files:
+        return res
+    try:
+        eol = eol_only(top)
+    except GitError:
+        return res
+    hit = [f for f in files if f in eol]
+    if hit:
+        res.update(eol_files=hit[:200], eol_all=len(hit) == len(files), blocking=files[:200])
+        try:
+            res["autocrlf"] = _cfg(top, "core.autocrlf")
+        except GitError:
+            pass
+    return res
 
 
 _CODE = {"modified": "M", "added": "A", "deleted": "D", "renamed": "R", "copied": "A", "typechange": "M",
          "conflicted": "C", "untracked": "U"}
 
 
-def decor(dirs):
-    """Tree colours for the folders the page shows: {files: {key: code}, dirs: {key: code}}."""
+def decor(dirs, with_eol=False):
+    """Tree colours for the folders the page shows: {files: {key: code}, dirs: {key: code}}.
+    with_eol: line-ending-only changes coloured too (else they look unchanged)."""
     base = S.base_root()
     if not base:
         return {"files": {}, "dirs": {}}
@@ -669,6 +765,8 @@ def decor(dirs):
         except GitError:
             continue
         for f in st["files"]:
+            if f.get("eol") and not with_eol:
+                continue
             full = os.path.join(top, f["path"].rstrip("/").replace("/", os.sep))
             nf = os.path.normcase(full)
             if not (nf == nbase or nf.startswith(nbase + os.sep)):
@@ -1329,6 +1427,7 @@ def pull_info(top):
     b = st["branch"]
     out = {"repo": _summary(top), "branch": b.get("head", ""), "upstream": b.get("upstream", ""),
            "ahead": b.get("ahead", 0), "behind": b.get("behind", 0), "dirty": len(st["files"]),
+           "eol_only": st.get("eol_only", 0),
            "remote": "", "url": "", "state": repo_state(top), "reason": ""}
     if not out["branch"]:
         out["reason"] = "detached"
@@ -1392,7 +1491,7 @@ def pull(top, unsaved=(), allow_unsaved=False):
         rc, text = _wrun(["merge", "--ff-only", up], top)
         output.append("$ git merge --ff-only " + up[:12] + ("\n" + text if text else ""))
         if rc:
-            return {"ok": False, "error": _pull_error(text), "output": "\n".join(output), "info": inf}
+            return _eol_note(top, text, {"ok": False, "error": _pull_error(text), "output": "\n".join(output), "info": inf})
         n = int(run(["rev-list", "--count", head + ".." + up], top).decode().strip() or 0)
         _source_changed(top)
         return {"ok": True, "updated": True, "from": head, "to": up, "commits": n, "files": len(files),
@@ -1497,7 +1596,7 @@ def checkout(top, ref, unsaved=(), allow_unsaved=False):
         rc, text = _wrun(args, top)
         output = "$ git " + " ".join(_q(a) for a in args) + ("\n" + text if text else "")
         if rc:
-            return {"ok": False, "error": _checkout_error(text), "git": text[:4000], "output": output, "branch": name}
+            return _eol_note(top, text, {"ok": False, "error": _checkout_error(text), "git": text[:4000], "output": output, "branch": name})
         _refs_cache.pop(top, None)
         _source_changed(top)
         return {"ok": True, "updated": True, "branch": name, "from": cur, "created": created, "tracking": tracking,
@@ -1707,7 +1806,7 @@ def handle_get(name, q):
         if name == "repos":
             return 200, repos()
         if name == "decor":
-            return 200, decor(_multi(q, "dir") or [""])
+            return 200, decor(_multi(q, "dir") or [""], _first(q, "eol") == "1")
         if name == "blame":
             return 200, blame(_first(q, "path"), _first(q, "w") == "1")
         top = repo_of(_first(q, "repo"))

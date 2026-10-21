@@ -21,7 +21,8 @@ const G = {
   blame: new Map(),    // doc key -> {data, decos, css}
   conflicts: new Set(),// ReadO keys of conflicted files (editor markers)
 };
-const S_DEFAULTS = { open: false, tab: 'changes', h: 300, repo: '', bw: 220, dw: 380, cw: 420, inline: false, ignoreWs: false, lineBlame: false };
+const S_DEFAULTS = { open: false, tab: 'changes', h: 300, repo: '', bw: 220, dw: 380, cw: 420, inline: false, ignoreWs: false, lineBlame: false,
+  ignoreEol: true, showEol: false };
 const S = () => {  // STATE.git with defaults filled in place (always the same object)
   if (!STATE.git || typeof STATE.git !== 'object') STATE.git = {};
   for (const [k, v] of Object.entries(S_DEFAULTS)) if (!(k in STATE.git)) STATE.git[k] = v;
@@ -527,6 +528,7 @@ function buildDiffWin() {  const bg = el('div', 'gdw');
       <span class="gdm-pos"></span>
       <button data-a="prev" title="previous file (↑ / Alt+↑)">↑</button><button data-a="next" title="next file (↓ / Alt+↓)">↓</button>
       <button data-a="mode" title="side by side / unified"></button>
+      <button data-a="eol" title="${EOL_TITLE}"></button>
       <button data-a="edit" title="open the file in the editor">Open in Editor</button>
       <button data-a="max" class="x" title="maximize / restore">□</button>
       <button data-a="close" class="x" title="close (Esc)">✕</button></div>
@@ -543,6 +545,7 @@ function buildDiffWin() {  const bg = el('div', 'gdw');
     if (a === 'prev') showDiffItem(win, win.idx - 1);
     if (a === 'next') showDiffItem(win, win.idx + 1);
     if (a === 'mode') { S().inline = !S().inline; saveState(); allViewers().forEach(syncDiffMode); }
+    if (a === 'eol') toggleIgnoreEol();
     if (a === 'edit') openDiffInEditor(win);
     if (a === 'max') dwMax(win);
   });
@@ -560,10 +563,29 @@ function buildDiffWin() {  const bg = el('div', 'gdw');
   });
   return win;
 }
+// Line endings: Monaco splits lines at CR and LF alike, so a diff ignores CRLF / LF by itself
+// ("Ignore line endings", the default). Turned off, every CR is drawn as ␍ and CRLF ↔ LF lines
+// show as changed. Either way the header names differing line endings ("line endings LF → CRLF").
+const EOL_TITLE = 'on: CRLF / LF differences are not shown as changes · off: CR shown as ␍, line-ending changes visible';
+function eolOf(t) {
+  if (!t) return '';
+  const crlf = (t.match(/\r\n/g) || []).length, cr = (t.match(/\r/g) || []).length - crlf, lf = (t.match(/\n/g) || []).length - crlf;
+  return crlf && !cr && !lf ? 'CRLF' : lf && !crlf && !cr ? 'LF' : cr && !crlf && !lf ? 'CR' : crlf + cr + lf ? 'mixed' : '';
+}
+const showCR = t => t.replace(/\r\n?/g, '␍\n');
+function eolNote(left, right) {
+  const a = eolOf(left), b = eolOf(right);
+  return a && b && a !== b ? `line endings ${a} → ${b}` : '';
+}
+function toggleIgnoreEol() {
+  S().ignoreEol = !S().ignoreEol; saveState();
+  allViewers().forEach(v => { syncDiffMode(v); if (v.spec && !v.spec.error) showDiffItem(v, v.idx); });
+}
 function syncDiffMode(win) {
-  const inline = !!S().inline, ws = win.bg.querySelector('[data-a="ws"]');
+  const inline = !!S().inline, ws = win.bg.querySelector('[data-a="ws"]'), eol = win.bg.querySelector('[data-a="eol"]');
   win.bg.querySelector('[data-a="mode"]').textContent = inline ? 'Unified' : 'Side by side';
   if (ws) { ws.textContent = S().ignoreWs ? 'Ignore whitespace' : 'Do not ignore'; ws.classList.toggle('on', !!S().ignoreWs); }
+  if (eol) { eol.textContent = S().ignoreEol ? 'Ignore line endings' : 'Show line endings'; eol.classList.toggle('on', !!S().ignoreEol); }
   if (win.ed) win.ed.updateOptions({ renderSideBySide: !inline, ignoreTrimWhitespace: !!S().ignoreWs });
 }
 // the inline pane: the diff window's header and Monaco diff editor, docked (no move / close / file walk)
@@ -574,6 +596,7 @@ function DiffPane(container, opts) {
       <button data-a="prevChange" title="previous change">↑</button><button data-a="nextChange" title="next change">↓</button>
       <button data-a="mode" title="side by side / unified"></button>
       <button data-a="ws" title="ignore leading / trailing whitespace"></button>
+      <button data-a="eol" title="${EOL_TITLE}"></button>
       <button data-a="edit" title="open the file in the editor">Open in Editor</button>
       <button data-a="win" title="open in a diff window (double-click the file)">Show in Window</button></div>
     <div class="gdm-body"><div class="gdm-ed"></div><div class="gdm-msg"></div></div>`;
@@ -585,6 +608,7 @@ function DiffPane(container, opts) {
     if ((a === 'prevChange' || a === 'nextChange') && v.ed) v.ed.goToDiff(a === 'nextChange' ? 'next' : 'previous');
     if (a === 'mode') { S().inline = !S().inline; saveState(); allViewers().forEach(syncDiffMode); }
     if (a === 'ws') { S().ignoreWs = !S().ignoreWs; saveState(); allViewers().forEach(syncDiffMode); }
+    if (a === 'eol') toggleIgnoreEol();
     if (a === 'edit') openDiffInEditor(v);
     if (a === 'win' && v.opts.onWindow) v.opts.onWindow();
   });
@@ -602,7 +626,8 @@ function DiffPane(container, opts) {
     container.querySelectorAll('.gdm-path, .gdm-hash, .gdm-sub').forEach(x => { x.textContent = ''; });
     container.querySelector('.gdm-hash').style.display = 'none';
     container.querySelectorAll('.gdm-head button').forEach(b => { b.disabled = true; });
-    container.querySelector('[data-a="mode"]').disabled = container.querySelector('[data-a="ws"]').disabled = false;
+    container.querySelector('[data-a="mode"]').disabled = container.querySelector('[data-a="ws"]').disabled =
+      container.querySelector('[data-a="eol"]').disabled = false;
     const msg = container.querySelector('.gdm-msg');
     msg.textContent = text || 'Select a file to see its changes'; msg.style.display = '';
   };
@@ -658,7 +683,9 @@ async function showDiffItem(win, i) {
   head.querySelector('.gdm-path').title = spec.path || '';
   head.querySelector('.gdm-hash').textContent = spec.hash || '';
   head.querySelector('.gdm-hash').style.display = spec.hash ? '' : 'none';
-  head.querySelector('.gdm-sub').textContent = spec.sub || '';
+  const rightText = spec.error ? '' : spec.doc ? spec.doc.model.getValue() : spec.right;
+  const note = spec.error ? '' : eolNote(spec.left, rightText);
+  head.querySelector('.gdm-sub').textContent = (spec.sub || '') + (note ? ' · ' + note : '');
   btn('edit').disabled = !spec.key;
   btn('win').disabled = !!spec.error;
   if (spec.error) { msg.textContent = spec.error; if (win.ed) win.ed.setModel(null); dropDiffModels(win); return; }
@@ -669,11 +696,13 @@ async function showDiffItem(win, i) {
     ignoreTrimWhitespace: !!S().ignoreWs,
     fontSize: STATE.fontSize || 13, theme: getTheme() === 'dark' ? 'one-dark' : 'one-light',
   });
-  const original = monaco.editor.createModel(spec.left, lang);
-  const modified = spec.doc ? spec.doc.model : monaco.editor.createModel(spec.right, lang);
+  const raw = !S().ignoreEol;  // CR drawn as ␍: the editor's own model cannot carry that, a read-only copy does
+  const live = spec.doc && !raw;
+  const original = monaco.editor.createModel(raw ? showCR(spec.left) : spec.left, lang);
+  const modified = live ? spec.doc.model : monaco.editor.createModel(raw ? showCR(rightText) : rightText, lang);
   const old = win.own;
-  win.own = spec.doc ? [original] : [original, modified];
-  win.ed.updateOptions({ readOnly: !(spec.doc && canEdit(spec.doc)) });
+  win.own = live ? [original] : [original, modified];
+  win.ed.updateOptions({ readOnly: !(live && canEdit(spec.doc)) });
   win.ed.setModel({ original, modified });
   old.forEach(m => m.dispose());
   const first = win.ed.onDidUpdateDiff(() => {
@@ -1063,6 +1092,12 @@ async function poll() {
 
 // ---------- Local Changes ----------
 const KIND_ST = { modified: 'M', added: 'A', deleted: 'D', renamed: 'R', copied: 'C', typechange: 'T', conflicted: '!', untracked: '?' };
+// changed files as the page counts them: line-ending-only ones (status "eol") left out unless shown
+const shownFiles = st => (st && st.files ? (S().showEol ? st.files : st.files.filter(f => !f.eol)) : []);
+function toggleShowEol() {
+  S().showEol = !S().showEol; saveState();
+  Changes.render(); renderTB(); refreshDecor();
+}
 const Changes = {
   tree: null, built: false,
   reset() { if (this.pane) this.pane.dispose(); this.pane = null; this.built = false; this._known = null; this._sig = null; if (W) W.pages.changes.innerHTML = ''; },
@@ -1076,6 +1111,7 @@ const Changes = {
         <button data-a="expand" title="expand all">+</button><button data-a="collapse" title="collapse all">−</button>
         <button data-a="commit" class="agent" title="ask AgentO to commit the ticked files">Commit… (AgentO)</button>
         <button data-a="rollback" title="ask AgentO to roll back the ticked files">Rollback…</button>
+        <button data-a="eol" class="tg" title="files whose only difference from HEAD is CRLF ↔ LF line endings (hidden by default; also in counts and tree colours)">Show line-ending-only changes</button>
         <span class="sum"></span>
       </div>
       <div class="gw-scroll"></div></div>
@@ -1109,6 +1145,7 @@ const Changes = {
       if (a === 'collapse') { this.tree.rows.filter(r => !r.file).forEach(r => this.tree.collapsed.add(r.id)); this.tree.set(this.tree.groups, true); }
       if (a === 'commit') this.agentFiles('commit');
       if (a === 'rollback') this.agentFiles('rollback');
+      if (a === 'eol') toggleShowEol();
     });
     this.built = true;
   },
@@ -1146,16 +1183,20 @@ const Changes = {
     if (!this.built || !G.status) return;
     const st = G.status;
     if (st.error) { this.tree.set([]); this.bar.querySelector('.sum').textContent = errText(st.error); return; }
-    const mk = f => ({ path: f.path, orig: f.orig, st: KIND_ST[f.kind] || 'M', cls: 'k-' + f.kind, raw: f,
-      tag: f.kind === 'untracked' || f.kind === 'conflicted' ? '' : f.staged && f.unstaged ? 'partly staged' : f.staged ? 'staged' : '' });
-    const conf = st.files.filter(f => f.kind === 'conflicted').map(mk);
-    const unv = st.files.filter(f => f.kind === 'untracked').map(mk);
-    const chg = st.files.filter(f => f.kind !== 'conflicted' && f.kind !== 'untracked').map(mk);
+    const mk = f => ({ path: f.path, orig: f.orig, st: KIND_ST[f.kind] || 'M', cls: 'k-' + f.kind + (f.eol ? ' k-eol' : ''), raw: f,
+      tag: f.eol ? 'line endings only' : f.kind === 'untracked' || f.kind === 'conflicted' ? '' : f.staged && f.unstaged ? 'partly staged' : f.staged ? 'staged' : '' });
+    const shown = shownFiles(st);
+    const conf = shown.filter(f => f.kind === 'conflicted').map(mk);
+    const unv = shown.filter(f => f.kind === 'untracked').map(mk);
+    const chg = shown.filter(f => f.kind !== 'conflicted' && f.kind !== 'untracked').map(mk);
+    const eb = this.bar.querySelector('[data-a="eol"]');
+    eb.classList.toggle('on', !!S().showEol);
+    eb.style.display = st.eol_only || S().showEol ? '' : 'none';
     const groups = [];
     if (conf.length) groups.push({ id: 'conflicts', label: 'Merge Conflicts', files: conf, check: false });
     groups.push({ id: 'changes', label: 'Changes', files: chg, check: true });
     if (unv.length) groups.push({ id: 'unversioned', label: 'Unversioned Files', files: unv, check: false });
-    const sig = JSON.stringify(st.files.map(f => f.path + f.x + f.y));
+    const sig = JSON.stringify(shown.map(f => f.path + f.x + f.y + (f.eol ? 'e' : '')));
     if (this._sig !== sig) {
       this._sig = sig;
       const ids = groups.flatMap(g => g.files.map(f => g.id + '|' + f.path));
@@ -1171,7 +1212,9 @@ const Changes = {
       if (sel && sel.file) this.select(sel, true); else this.pane.clear();
     }
     const b = st.branch || {};
-    this.bar.querySelector('.sum').textContent = `${st.files.length} file${st.files.length === 1 ? '' : 's'}${st.truncated ? '+ (list cut)' : ''} · ` +
+    const n = shown.length - (S().showEol ? st.eol_only || 0 : 0);
+    this.bar.querySelector('.sum').textContent = `${n} file${n === 1 ? '' : 's'}${st.truncated ? '+ (list cut)' : ''} · ` +
+      (st.eol_only ? `${st.eol_only} line-ending-only ${S().showEol ? 'shown' : 'hidden'} · ` : '') +
       (b.detached ? 'detached HEAD ' + short(b.oid) : '⎇ ' + (b.head || '?')) +
       (b.upstream ? ` → ${b.upstream} ↑${b.ahead} ↓${b.behind}` : '') + (st.ms > 800 ? ` · status ${st.ms} ms` : '');
     const state = st.repo && st.repo.state;
@@ -1887,7 +1930,7 @@ async function refreshDecor() {
   if (_decorBusy || !G.info || !G.info.available || !_settings.base_dir) return;
   _decorBusy = true;
   try {
-    const d = await api('decor', { dir: expandedTreeDirs() });
+    const d = await api('decor', { dir: expandedTreeDirs(), eol: S().showEol ? 1 : '' });
     if (d.error) return;
     G.decor = d;
     applyDecor(document.getElementById('tree'));
@@ -2307,6 +2350,8 @@ const GIT_COMMANDS = [
   { id: 'git.lineBlame', cat: 'Git', title: "Show Current Line's Commit at Line End", run: () => toggleLineBlame(), checked: () => !!S().lineBlame },
   { id: 'git.branches', cat: 'Git', title: 'Branches…', run: () => branchPopup(document.getElementById('sbBranch')) },
   { id: 'git.refresh', cat: 'Git', title: 'Refresh Git Status', run: () => refreshAll(true) },
+  { id: 'git.showEol', cat: 'Git', title: 'Show Line-Ending-Only Changes', run: () => toggleShowEol(), checked: () => !!S().showEol },
+  { id: 'git.ignoreEol', cat: 'Git', title: 'Diff: Ignore Line Endings', run: () => toggleIgnoreEol(), checked: () => !!S().ignoreEol },
   { id: 'git.repo', cat: 'Git', title: 'Choose Repository…', run: async () => {
     await loadRepos();
     if (!G.repos.length) return showToast('no git repository in or around the open folder', true);
@@ -2317,7 +2362,7 @@ const GIT_COMMANDS = [
     if (!(await ensureRepoForCommand())) return;
     const st = G.status;
     const ticked = Changes.built && Changes.tree ? Changes.tree.checkedFiles().map(f => f.path) : [];
-    const files = ticked.length ? ticked : (st.files || []).filter(f => f.kind !== 'untracked' && f.kind !== 'conflicted').map(f => f.path);
+    const files = ticked.length ? ticked : shownFiles(st).filter(f => f.kind !== 'untracked' && f.kind !== 'conflicted').map(f => f.path);
     if (!files.length) return showToast('nothing to commit (untracked files: tick them in Local Changes)', true);
     agentDialog('commit', { files });
   } },
@@ -2356,7 +2401,7 @@ function registerCommands() {
     MENUS.splice(i < 0 ? MENUS.length - 1 : i, 0, { label: 'Git', items: ['git.toolwin', 'git.changes', 'git.log', 'git.stash', 'git.console', '-',
       'git.history', 'git.blame', 'git.lineBlame', 'file.compareHead', '-', 'git.branches', 'git.pull', 'git.fetch', '-',
       { label: 'AgentO', items: ['git.agentCommit', 'git.agentPush', '-','git.agentBranch', 'git.agentStash', '-', 'git.agentAsk', 'git.openAgentO', 'git.agentoPath'] },
-      'git.terminal', '-', 'git.repo', 'git.refresh'] });
+      'git.terminal', '-', 'git.showEol', 'git.ignoreEol', '-', 'git.repo', 'git.refresh'] });
   }
   applyKeymap(STATE.keymap);
   renderMenuBar();
@@ -2438,7 +2483,7 @@ const PULL_WHY = {
 };
 const whyText = d => PULL_WHY[d.error] || errText(d);
 function tbState() {
-  const st = TB.st, b = st && st.branch, files = st ? st.files || [] : [];
+  const st = TB.st, b = st && st.branch, files = shownFiles(st);
   return { st, b, files, commitable: files.filter(f => f.kind !== 'conflicted'), avail: !!(G.info && G.info.available) };
 }
 function renderTB() {
@@ -2523,9 +2568,20 @@ async function refreshSource(repo) {
 }
 const choiceOf = r => (r && typeof r === 'object' ? r.value : r);
 // a refused / failed pull, fetch or checkout: why, what git said, where the full output is
+// files in the way of a pull / checkout that differ from HEAD only in CRLF ↔ LF (gitview._eol_note):
+// what it means and how to clear it — advice only; ReadO changes neither the files nor the settings
+function eolHelp(d) {
+  const f = d.eol_files || [];
+  if (!f.length) return '';
+  return `\n\n${d.eol_all ? (f.length === 1 ? 'The file' : `All ${f.length} files`) : `${f.length} of the ${(d.blocking || []).length} files`} in the way ` +
+    `${f.length === 1 ? 'differs' : 'differ'} from HEAD only in line endings (CRLF ↔ LF):\n` + f.slice(0, 8).map(x => '  ' + x).join('\n') + (f.length > 8 ? `\n  … ${f.length - 8} more` : '') +
+    `\ngit still counts that as a local change. ReadO does not restore these files or change the repository's settings.` +
+    `\nTo clear it yourself: check core.autocrlf (here: ${d.autocrlf || 'not set'}) and .gitattributes (e.g. "* text=auto"), then restore ` +
+    `the files (git checkout -- <file>; their content is unchanged) or renormalize (git add --renormalize .) — or ask AgentO.`;
+}
 async function gitFailDialog(title, d, repo, extraButtons) {
   const out = String(d.git || d.output || '').trim().split('\n').slice(-14).join('\n');
-  const v = choiceOf(await askChoice(title, whyText(d) + (out ? '\n\ngit:\n' + out : ''),
+  const v = choiceOf(await askChoice(title, whyText(d) + eolHelp(d) + (out ? '\n\ngit:\n' + out : ''),
     [...(extraButtons || []), { label: 'show Console', value: 'console' }, { label: 'ok', value: 'ok', primary: true }]));
   if (v === 'console' || v === 'stash') {
     if (!G.repo || G.repo.root !== repo.root) await selectRepo(repo.root, true);
@@ -2545,7 +2601,7 @@ async function tbPull(repo) {
     (inf.behind ? `  (↓${inf.behind} known before fetch)` : '') +
     `\nRemote:        ${inf.remote}${inf.url ? '  ' + inf.url : ''}\n\n` +
     'Runs git fetch, then git merge --ff-only (= git pull --ff-only). If the branch cannot fast-forward, or local changes are in the way, ReadO stops and changes nothing — no merge commit, rebase or stash.' +
-    (inf.dirty ? `\n\n${inf.dirty} local change(s) are kept as they are.` : '') +
+    (inf.dirty ? `\n\n${inf.dirty} local change(s) are kept as they are` + (inf.eol_only ? ` (${inf.eol_only} only in line endings).` : '.') : '') +
     (unsaved.length ? `\n\n⚠ ${unsaved.length} file(s) here have unsaved edits — if the pull changes them you will be asked again.` : '');
   const r = await askChoice('Pull ' + inf.branch, msg, [{ label: 'pull', value: 'ok', primary: true }, { label: 'cancel', value: 'cancel' }]);
   if (r !== 'ok' && !(r && r.value === 'ok')) return;
@@ -2736,6 +2792,6 @@ function init() {
   setInterval(() => { G.conflicts.forEach(k => { const d = docs.get(k); if (d && !_confDecos.has(k)) markConflicts(d); }); }, 2000);
 }
 window.GitUI = { G, DW, get DM() { return dmFront(); }, openDiffWin, openPanelWin, closeDiffModal, closeDiffWin, diffModalOpen, toggleWindow, setTab, openHistory, toggleBlame, clearBlame, blameAt, openBlameCommit, toggleLineBlame, updateLineBlame, agentDialog, refreshAll, laneStep, get Log() { return Log; }, get History() { return History; }, Changes, Stash,
-  get useDeeplink() { return USE_DEEPLINK; }, set useDeeplink(v) { USE_DEEPLINK = !!v; } };
+  get useDeeplink() { return USE_DEEPLINK; }, set useDeeplink(v) { USE_DEEPLINK = !!v; }, selectRepo, get S() { return S(); }, get DV() { return [...DV]; } };
 init();
 })();

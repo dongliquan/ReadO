@@ -751,6 +751,21 @@ Ctrl+K·Ctrl+Shift+K는 실제 커밋이 아니라 **지시문 미리보기 대�
 | 명령 기록 | 모든 단계가 Console 탭에 출력과 함께 남는다. 저장소별 쓰기 잠금, 60초 타임아웃, 프롬프트 없음, hooks 끔은 Pull과 같다. git 2.24 미만이거나 git이 없으면 API가 그 이유로 거부하고 UI도 꺼진다 |
 | AgentO 메뉴 | Pull·Fetch는 ReadO가 직접 하므로 AgentO ▾ 메뉴와 Git ▸ AgentO 하위 메뉴에서 뺐다. Commit·Push·New Branch·Stash·Merge·Rebase·Delete는 계속 AgentO 담당이다(`USE_DEEPLINK` 그대로) |
 
+<a id="sec-14-5"></a>
+
+## 14.5 줄바꿈(CRLF/LF)만 다른 변경 (2026-10-21)
+
+| 항목 | 내용 |
+|---|---|
+| 원인(재현) | 저장소에 LF로 들어 있는 파일을 편집기나 도구가 CRLF로 다시 쓰면 `core.autocrlf=false` 또는 `input`에서 `git status`가 수정으로 보여 준다. `autocrlf=true`에서는 CRLF로 커밋된 파일이 LF로 바뀐 경우에 보인다. `git diff HEAD --numstat --ignore-cr-at-eol`은 이런 파일을 아예 목록에서 뺀다. 들어오는 커밋이 그 파일을 바꾸면 `merge --ff-only`·`switch`가 "would be overwritten"으로 거부한다(내용은 같아도 git에는 로컬 변경이다) |
+| 판정 | status의 수정 파일 중 인덱스나 작업 트리 한쪽이 HEAD와 같은 파일(XY에 `.`)만 `git diff HEAD --numstat --ignore-cr-at-eol --no-textconv --no-ext-diff -z -- <경로>`로 확인해 `eol: true`를 붙인다. 진짜 변경을 스테이징한 MM 파일은 숨기지 않는다. 결과는 파일별(HEAD, mtime, 크기)로 캐시해 status 폴링마다 다시 계산하지 않는다. 한 번에 최대 3000개, 명령줄 2.4만 자 단위로 나눠 실행한다 |
+| 비용 | 2000개 파일 기준 첫 status +1.2초, 이후 status의 확인 비용 약 25ms(stat만 한다) |
+| Local Changes | 기본은 숨긴다. 요약에 "N files · M line-ending-only hidden"이 표시된다. 바 버튼 [Show line-ending-only changes](Git 메뉴에도 있음, 설정 저장)를 누르면 흐리게 보이고 "line endings only" 태그가 붙는다. 툴바 Commit 개수, Commit 대상 기본 목록, 파일 트리 색(`/api/git/decor?eol=1`일 때만 포함)도 같은 기준을 따른다 |
+| diff | 헤더에 [Ignore line endings] 버튼이 있다(Local Changes 오른쪽 diff, 플로팅 diff 창, OS diff 창, Git 메뉴 "Diff: Ignore Line Endings"). 기본은 켬이다. Monaco는 줄을 CR·LF 모두에서 나누므로 켜면 CRLF↔LF 차이가 변경으로 보이지 않는다. 끄면 CR을 `␍`로 그려 줄바꿈이 바뀐 줄이 변경으로 보인다. 이때 열린 편집 문서는 읽기 전용 복사본으로 보여 준다. 양쪽 줄바꿈 형식이 다르면 헤더 설명에 "line endings LF → CRLF"를 붙인다. 설정은 메인 창 상태에 저장하고, OS diff 창은 그 값으로 시작한다(창 안 토글은 그 창에만 적용) |
+| Pull·Checkout 거부 | git이 나열한 "in the way" 파일 중 줄바꿈만 다른 파일을 `eol_files`로 돌려준다. 대화상자는 그 파일과 "git은 여전히 로컬 변경으로 본다", 현재 `core.autocrlf` 값, 해결 방법(core.autocrlf·`.gitattributes` 확인 후 `git checkout -- <file>` 또는 `git add --renormalize .`, AgentO에 요청)을 안내한다. ReadO는 파일을 되돌리거나 덮어쓰지 않고, `checkout -- .`·`reset --hard`도 하지 않으며, 저장소 설정도 바꾸지 않는다. Pull 확인창은 로컬 변경 수와 그중 줄바꿈만 다른 수를 함께 보여 준다 |
+| 읽기 명령 | `diff`를 READ_ONLY에 넣었다. `--output`·`--ext-diff`·`--textconv`는 `_check_allowed`에서 거부한다 |
+| 에디터 저장 | 서버는 받은 텍스트를 그대로 쓴다. Monaco 모델은 파일 전체가 CRLF이거나 LF이면 그 형식을 유지해 저장한다(테스트로 확인). **줄바꿈이 섞인 파일은 열 때 많은 쪽 형식으로 통일되어**, 저장하면 다른 줄의 줄바꿈도 바뀐다(Monaco 모델의 한계라 에디터 코드는 고치지 않았다) |
+
 <a id="sec-14-3"></a>
 
 ## 14.3 AgentO 딥링크 요청 스펙(v1, 초안 — AgentO 구현과 맞춰 확정)

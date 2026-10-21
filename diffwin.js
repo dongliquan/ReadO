@@ -6,7 +6,14 @@
 (function () {
 'use strict';
 const W = window.READO_DIFFWIN, D = W.desc, ST = W.state || {}, GS = ST.git || {};
-const opt = { inline: !!GS.inline, ws: !!GS.ignoreWs };
+const opt = { inline: !!GS.inline, ws: !!GS.ignoreWs, eol: GS.ignoreEol !== false };
+// line endings as in git.js: Monaco ignores CRLF / LF by itself; off, every CR is drawn as ␍
+function eolOf(t) {
+  if (!t) return '';
+  const crlf = (t.match(/\r\n/g) || []).length, cr = (t.match(/\r/g) || []).length - crlf, lf = (t.match(/\n/g) || []).length - crlf;
+  return crlf && !cr && !lf ? 'CRLF' : lf && !crlf && !cr ? 'LF' : cr && !crlf && !lf ? 'CR' : crlf + cr + lf ? 'mixed' : '';
+}
+const showCR = t => t.replace(/\r\n?/g, '␍\n');
 const dark = ST.theme === 'dark';
 document.body.classList.add(dark ? 'theme-dark' : 'theme-light');
 const $ = s => document.querySelector(s);
@@ -51,6 +58,9 @@ function syncButtons() {
   const ws = head.querySelector('[data-a="ws"]');
   ws.textContent = opt.ws ? 'Ignore whitespace' : 'Do not ignore';
   ws.classList.toggle('on', opt.ws);
+  const eol = head.querySelector('[data-a="eol"]');
+  eol.textContent = opt.eol ? 'Ignore line endings' : 'Show line endings';
+  eol.classList.toggle('on', opt.eol);
   if (ed) ed.updateOptions({ renderSideBySide: !opt.inline, ignoreTrimWhitespace: opt.ws });
 }
 async function go(i, user) {
@@ -83,7 +93,10 @@ async function go(i, user) {
   cur = it;
   msg.style.display = 'none';
   const lang = langFor(it.path);
-  const original = monaco.editor.createModel(left, lang), modified = monaco.editor.createModel(right, lang);
+  const el = eolOf(left), er = eolOf(right);
+  head.querySelector('.gdm-sub').textContent = (it.sub || '') + (el && er && el !== er ? ` · line endings ${el} → ${er}` : '');
+  const original = monaco.editor.createModel(opt.eol ? left : showCR(left), lang),
+    modified = monaco.editor.createModel(opt.eol ? right : showCR(right), lang);
   ed.setModel({ original, modified });
   own.forEach(m => m.dispose());
   own = [original, modified];
@@ -106,6 +119,7 @@ head.addEventListener('click', e => {
   if ((a === 'prevChange' || a === 'nextChange') && ed) ed.goToDiff(a === 'nextChange' ? 'next' : 'previous');
   if (a === 'mode') { opt.inline = !opt.inline; syncButtons(); }
   if (a === 'ws') { opt.ws = !opt.ws; syncButtons(); }
+  if (a === 'eol') { opt.eol = !opt.eol; syncButtons(); go(idx); }
   if (a === 'edit') openInEditor();
 });
 document.addEventListener('keydown', e => {

@@ -176,6 +176,110 @@ def checkout_ui_tests(pg, ev, shot, toast, A, UP):
     _g(A, "checkout", "-q", "topic")
 
 
+def eol_ui_tests(pg, ev, shot, toast, base):
+    """Line-ending-only changes: hidden in Local Changes (toggle), diff "Ignore line endings", pull / checkout
+    messages, and the editor keeping a file's CRLF / LF when saving."""
+    rb = os.path.join(base, "eolremote.git")
+    _g(base, "init", "-q", "--bare", "eolremote.git")
+    up = os.path.join(base, "eolup")
+    _g(base, "clone", "-q", rb, "eolup")
+    for name in ("lf.txt", "real.txt", "touched.txt"):
+        _put(up, name, "one\ntwo\n")
+    _put(up, "crlf.txt", "one\r\ntwo\r\n")
+    _put(up, "mixed.txt", "one\r\ntwo\nthree\r\n")
+    _g(up, "add", "-A"); _g(up, "commit", "-q", "-m", "first"); _g(up, "push", "-q", "origin", "HEAD:main")
+    _g(base, "clone", "-q", "-c", "core.autocrlf=false", "-b", "main", rb, "eolrepo")
+    E = os.path.join(base, "eolrepo")
+    crlf = lambda name, text: open(os.path.join(E, name), "wb").write(text.replace("\n", "\r\n").encode())
+    crlf("lf.txt", "one\ntwo\n"); crlf("touched.txt", "one\ntwo\n"); crlf("real.txt", "one\nchanged\n")
+    root = os.path.realpath(E).replace("\\", "/")
+    rows = lambda: ev("[...document.querySelectorAll('#gitWin [data-page=changes] .gt-row[data-id^=\"changes|\"]')].map(r => r.dataset.id.slice(8) + (r.classList.contains('k-eol') ? ':eol' : ''))")
+    SUM = "document.querySelector('#gitWin [data-page=changes] .gw-bar .sum').textContent"
+
+    print("== line endings: Local Changes")
+    ev(f"GitUI.toggleWindow(true); GitUI.selectRepo({root!r}).then(() => GitUI.setTab('changes'))")
+    pg.wait_for_function(SUM + ".includes('line-ending-only hidden')", timeout=20000)
+    check(rows() == ["real.txt"] and ev(SUM).startswith("1 file · 2 line-ending-only hidden"),
+          f"CRLF-only files hidden, counted apart ({rows()} | {ev(SUM)[:50]})")
+    btn = "#gitWin [data-page=changes] [data-a=eol]"
+    check(ev(f"document.querySelector('{btn}').textContent") == "Show line-ending-only changes", "toggle: Show line-ending-only changes")
+    shot("t7-eol-hidden")
+    pg.click(btn)
+    pg.wait_for_function(SUM + ".includes('line-ending-only shown')", timeout=5000)
+    r = rows()
+    check(sorted(r) == ["lf.txt:eol", "real.txt", "touched.txt:eol"] and ev("GitUI.S.showEol") is True,
+          f"toggle on: shown dimmed, setting kept ({r})")
+    check("line endings only" in ev("document.querySelector('#gitWin [data-page=changes] .gt-row[data-id=\"changes|lf.txt\"]').textContent"),
+          "row tagged 'line endings only'")
+
+    print("== line endings: diff")
+    pg.click("#gitWin [data-page=changes] .gt-row[data-id=\"changes|lf.txt\"]")
+    pg.wait_for_function("(document.querySelector('#gitWin .lc-diff .gdm-sub') || {}).textContent.includes('line endings LF → CRLF')", timeout=10000)
+    time.sleep(0.6)
+    pane = "#gitWin .lc-diff"
+    lc = "(() => { const v = GitUI.DV.find(x => x.bg.closest('.lc-diff')); return v && v.ed ? (v.ed.getLineChanges() || []).length : -1; })()"
+    n_on = ev(lc)
+    check(ev(f"document.querySelector('{pane} [data-a=eol]').textContent") == "Ignore line endings" and ev("GitUI.S.ignoreEol") is True and n_on == 0,
+          f"diff: Ignore line endings on by default, no changed lines, header names LF → CRLF ({n_on})")
+    pg.click(f"{pane} [data-a=eol]")
+    pg.wait_for_function(lc + " > 0", timeout=10000)
+    check(ev(f"document.querySelector('{pane} [data-a=eol]').textContent") == "Show line endings" and ev("GitUI.S.ignoreEol") is False
+          and "␍" in ev("GitUI.DV.find(x => x.bg.closest('.lc-diff')).ed.getModel().modified.getValue()"),
+          "off: CR drawn as ␍, the lines show as changed, setting kept")
+    shot("t8-eol-shown")
+    pg.click(f"{pane} [data-a=eol]")
+    pg.wait_for_function("GitUI.S.ignoreEol === true", timeout=5000)
+    pg.click(btn)
+    pg.wait_for_function(SUM + ".includes('line-ending-only hidden')", timeout=5000)
+
+    print("== line endings: pull / checkout messages")
+    _put(up, "touched.txt", "one\ntwo\nthree\n"); _g(up, "commit", "-q", "-am", "remote"); _g(up, "push", "-q", "origin", "HEAD:main")
+    head = _g(E, "rev-parse", "HEAD")
+    ev("document.getElementById('dlgTitle').textContent = ''")
+    pg.click("#gitWin [data-a=pull]")
+    pg.wait_for_function("document.getElementById('dlgTitle').textContent === 'Pull main'", timeout=10000)
+    msg = ev("document.getElementById('dlgMsg').textContent")
+    check("eolrepo" in msg and "2 only in line endings" in msg, f"pull confirmation counts eol-only changes apart ({msg[-80:]!r})")
+    ev("document.getElementById('dlgTitle').textContent = ''")
+    pg.click("#dlgBtns button.primary")
+    pg.wait_for_function("document.getElementById('dlgTitle').textContent.startsWith('Pull stopped')", timeout=20000)
+    msg = ev("document.getElementById('dlgMsg').textContent")
+    with open(os.path.join(E, "touched.txt"), "rb") as f:
+        kept = f.read() == b"one\r\ntwo\r\n"
+    check("only in line endings" in msg and "touched.txt" in msg and "core.autocrlf (here: false)" in msg and "does not restore" in msg
+          and _g(E, "rev-parse", "HEAD") == head and kept and _g(E, "config", "--get", "core.autocrlf") == "false",
+          f"pull refused: says the file in the way differs only in line endings, how to fix; nothing changed ({msg[:60]})")
+    shot("t9-eol-pull")
+    pg.click("#dlgBtns button.primary")
+    _g(E, "fetch", "-q"); _g(E, "branch", "-q", "other", "origin/main")
+    pg.click("#gitWin [data-a=branch]")
+    pg.wait_for_selector("#gitPick .it", timeout=8000)
+    pg.fill("#gitPick input.q", "other")
+    ev("document.getElementById('dlgTitle').textContent = ''")
+    pg.click("#gitPick .it:has(.nm:text-is('other'))")
+    pg.wait_for_function("document.getElementById('dlgTitle').textContent.startsWith('Checkout of other refused')", timeout=20000)
+    msg = ev("document.getElementById('dlgMsg').textContent")
+    check("only in line endings" in msg and "touched.txt" in msg and _g(E, "rev-parse", "--abbrev-ref", "HEAD") == "main",
+          "checkout refused: the same line-ending explanation")
+    pg.click("#dlgBtns button.primary")
+
+    print("== editor: saving keeps the file's line endings")
+    out = {}
+    for name in ("crlf.txt", "lf.txt", "mixed.txt"):
+        key = "eolrepo/" + name
+        ev(f"openFile({key!r})")
+        pg.wait_for_function(f"currentPath === {key!r}", timeout=10000)
+        ev("(() => { const m = currentDoc().model; m.pushEditOperations([], [{ range: new monaco.Range(1, 1, 1, 1), text: 'x' }], () => null); })()")
+        ev("saveDoc(currentDoc())")
+        pg.wait_for_function("!currentDoc().dirty", timeout=10000)
+        with open(os.path.join(E, name), "rb") as f:
+            out[name] = f.read()
+    check(out["crlf.txt"] == b"xone\r\ntwo\r\n", f"CRLF file saved with CRLF ({out['crlf.txt']!r})")
+    check(out["lf.txt"] == b"xone\r\ntwo\r\n", f"file opened as CRLF (its disk form) saved as CRLF ({out['lf.txt']!r})")
+    print(f"  info: mixed file saved as {out['mixed.txt']!r} (was b'one\\r\\ntwo\\nthree\\r\\n')")
+    ev("GitUI.toggleWindow(false)")
+
+
 def find_dialog_tests(pg, ev, shot, base):
     """Find File (Ctrl+P) and Find in Files (Ctrl+Shift+F): one frame, switching keeps the text, prefixes, options saved."""
     QO, FIF = "document.getElementById('qoBg').classList.contains('show')", "document.getElementById('fifBg').classList.contains('show')"
@@ -547,6 +651,9 @@ def toolbar_tests(b, url, tmp, errors, shots):
     check(ev("document.getElementById('gtbPull').disabled") and "no upstream" in ev("document.getElementById('gtbPull').title"), "branch without upstream: Pull disabled, tooltip says why")
     check(not ev("document.getElementById('gtbPush').disabled"), "branch without upstream: Push request allowed (AgentO sets it up)")
     checkout_ui_tests(pg, ev, shot, toast, A, UP)
+    eol_ui_tests(pg, ev, shot, toast, base)
+    ev("openFile('my-repo/f.txt')")
+    _g(A, "checkout", "-q", "topic") if _g(A, "rev-parse", "--abbrev-ref", "HEAD") != "topic" else None
 
     find_dialog_tests(pg, ev, shot, base)
     print("== top bar: narrow windows, dark theme")
@@ -664,6 +771,10 @@ def main():
         pg.mouse.move(sash["x"] + 120, sash["y"]); pg.mouse.down(); pg.mouse.move(sash["x"], sash["y"]); pg.mouse.up()
         pg.dblclick("#gitWin [data-page=changes] .gt-row:has-text('staged.txt')")
         pg.wait_for_function("GitUI.DW.wins.length === 1 && GitUI.DM.ident.endsWith('|staged.txt')", timeout=10000)
+        try:  # the pane loads its spec on its own; give it a moment under load
+            pg.wait_for_function(PANE + ".spec && " + PANE + ".spec.path === 'staged.txt'", timeout=5000)
+        except Exception:
+            pass
         check(pg.evaluate(PANE + ".spec.path") == "staged.txt", "double-click: diff window opens (the pane shows the file too)")
         pg.evaluate("GitUI.closeDiffWin(GitUI.DM)")
         pg.click("#gitWin [data-page=changes] .gt-row:has-text('app.py')", button="right")

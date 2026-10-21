@@ -726,6 +726,96 @@ def checkout_tests(tmp):
         srv.shutdown()
 
 
+def eol_tests(tmp):
+    """Line-ending-only changes: marked in status, left out of tree colours, named when they block a pull / checkout."""
+    import gitview
+    base = os.path.join(tmp, "eolfx")
+    remote, a, b = (os.path.join(base, n) for n in ("remote.git", "a", "b"))
+    os.makedirs(base)
+    _g(base, "init", "-q", "--bare", "remote.git")
+    _g(base, "clone", "-q", remote, "b")
+    for name in ("lf.txt", "real.txt", "touched.txt", "mm.txt"):
+        _commit(b, name, "one\ntwo\n", "add " + name)
+    _g(b, "push", "-q", "origin", "HEAD:main")
+    _g(base, "clone", "-q", "-b", "main", remote, "a")
+    _g(a, "config", "core.autocrlf", "false")
+    _g(a, "branch", "-q", "other", "origin/main")
+    crlf = lambda name, text: open(os.path.join(a, name), "wb").write(text.replace("\n", "\r\n").encode())
+    crlf("lf.txt", "one\ntwo\n")              # only line endings
+    crlf("touched.txt", "one\ntwo\n")         # only line endings, and the remote changes it
+    crlf("real.txt", "one\nchanged\n")        # line endings + a real change
+    with open(os.path.join(a, "mm.txt"), "w", newline="\n") as f:
+        f.write("staged change\n")
+    _g(a, "add", "mm.txt")
+    crlf("mm.txt", "one\ntwo\n")              # MM: worktree = HEAD bar CR, index has a real change
+    srv, c = start(base)
+    A = a.replace("\\", "/")
+    try:
+        print("== line-ending-only changes: status")
+        code, d, _ = c.git("status", repo=A, fresh=1)
+        by = {f["path"]: f for f in d.get("files", [])}
+        check(by.get("lf.txt", {}).get("eol") and by.get("touched.txt", {}).get("eol"), "CRLF-only rewrite: eol")
+        check(not by.get("real.txt", {}).get("eol") and not by.get("mm.txt", {}).get("eol"),
+              "real change / staged change (MM): not eol")
+        check(d.get("eol_only") == 2, f"eol_only count 2 ({d.get('eol_only')})")
+        code, con, _ = c.git("console")
+        n_diff = sum(1 for e in con.get("entries", []) if "--ignore-cr-at-eol" in e["cmd"])
+        code, d, _ = c.git("status", repo=A, fresh=1)
+        code, con, _ = c.git("console")
+        check(sum(1 for e in con.get("entries", []) if "--ignore-cr-at-eol" in e["cmd"]) == n_diff and d.get("eol_only") == 2,
+              "unchanged files are not checked again (cache by HEAD / mtime / size)")
+        code, d, _ = c.git("decor", dir=["a"])
+        check("a/lf.txt" not in d.get("files", {}) and "a/real.txt" in d.get("files", {}), "tree colours leave eol-only files out")
+        code, d, _ = c.git("decor", dir=["a"], eol="1")
+        check("a/lf.txt" in d.get("files", {}), "decor eol=1: coloured too")
+
+        print("== line-ending-only changes in the way of pull / checkout")
+        _commit(b, "touched.txt", "one\ntwo\nthree\n", "remote edit")
+        _g(b, "push", "-q", "origin", "HEAD:main")
+        head = _g(a, "rev-parse", "HEAD")
+        code, d = c.post("/api/git/pull", {"repo": A})
+        with open(os.path.join(a, "touched.txt"), "rb") as f:
+            kept = f.read() == b"one\r\ntwo\r\n"
+        check(not d.get("ok") and d.get("error") == "local_changes" and d.get("eol_files") == ["touched.txt"] and d.get("eol_all")
+              and d.get("autocrlf") == "false", f"pull refused: names the eol-only file in the way ({d.get('eol_files')})")
+        check(_g(a, "rev-parse", "HEAD") == head and kept and _g(a, "config", "--get", "core.autocrlf") == "false",
+              "pull refused: HEAD, the file's bytes and core.autocrlf unchanged")
+        _g(a, "fetch", "-q")
+        _g(a, "branch", "-q", "-f", "other", "origin/main")
+        code, d = c.post("/api/git/checkout", {"repo": A, "ref": "refs/heads/other"})
+        check(not d.get("ok") and d.get("error") == "local_changes" and d.get("eol_files") == ["touched.txt"]
+              and _g(a, "rev-parse", "--abbrev-ref", "HEAD") == "main", f"checkout refused: names the eol-only file ({d.get('eol_files')})")
+        check(gitview._blocking_files("error: Your local changes to the following files would be overwritten by checkout:\n\ta b.txt\n\tc.txt\n"
+                                      "Please commit your changes or stash them before you switch branches.\nAborting\n") == ["a b.txt", "c.txt"],
+              "git's list of files in the way parsed")
+
+        for cmd in (["diff", "--output=x.txt"], ["diff", "--ext-diff"], ["diff", "--textconv"]):
+            try:
+                gitview.run(cmd, a)
+                check(False, f"run() refuses {' '.join(cmd)}")
+            except gitview.GitError as e:
+                check(e.code == "bad_arg" and not os.path.exists(os.path.join(a, "x.txt")), f"run() refuses {' '.join(cmd)}")
+
+        print("== line-ending-only changes: cost")
+        big = os.path.join(base, "big")
+        os.makedirs(big)
+        _g(big, "init", "-q"); _g(big, "config", "core.autocrlf", "false")
+        for i in range(2000):
+            with open(os.path.join(big, f"f{i}.txt"), "wb") as f:
+                f.write(b"line\n" * 40)
+        _g(big, "add", "-A"); _g(big, "commit", "-q", "-m", "x")
+        for i in range(2000):
+            with open(os.path.join(big, f"f{i}.txt"), "wb") as f:
+                f.write(b"line\r\n" * 40)
+        code, d, ms1 = c.git("status", repo=big.replace("\\", "/"), fresh=1)
+        code, d2, ms2 = c.git("status", repo=big.replace("\\", "/"), fresh=1)
+        print(f"  2000 eol-only files: first status {ms1:.0f} ms (eol check {d.get('eol_ms')} ms), again {ms2:.0f} ms (eol {d2.get('eol_ms')} ms)")
+        check(d.get("eol_only") == 2000 and d2.get("eol_only") == 2000 and d2.get("eol_ms", 9999) < 300,
+              f"2000 files: all eol, the next status only stats them ({d2.get('eol_ms')} ms)")
+    finally:
+        srv.shutdown()
+
+
 def perf(c, top, label, rounds=1):
     R = top.replace("\\", "/")
     rows = []
@@ -780,6 +870,7 @@ def main():
         srv.shutdown()
         pull_tests(tmp)
         checkout_tests(tmp)
+        eol_tests(tmp)
         for repo in extra:
             before = snapshot(repo)
             srv, c = start(os.path.dirname(os.path.realpath(repo)))

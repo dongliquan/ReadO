@@ -908,6 +908,37 @@ def main():
               "false" not in fit.split(" overflow:")[0] and fit.endswith("overflow:false"), fit)
         page.set_viewport_size(vp)
         ev("closeFIF()")
+
+        # --- find dialogs: ✕ button, Esc / Ctrl+Shift+F / outside click close and give the editor the keyboard ---
+        ev("openFile('proj/A.java')")
+        page.wait_for_function("currentPath === 'proj/A.java' && editor.getModel()")
+        ed_focus = "!fifIsOpen() && !qoIsOpen() && panes[activePaneIdx].editor.hasTextFocus()"
+
+        def closes(label, open_js, act):
+            ev(open_js)
+            page.wait_for_function("fifIsOpen() || qoIsOpen()", timeout=5000)
+            act()
+            try:
+                page.wait_for_function(ed_focus, timeout=3000)
+                ok = True
+            except Exception:
+                ok = False
+            check(label, ok, ev("[fifIsOpen(), qoIsOpen(), document.activeElement && document.activeElement.id]"))
+        check("find dialogs have a visible ✕ in the header (In Files; Files / Commands / Symbols)",
+              ev("openFIF(); const a = document.getElementById('fifClose').getBoundingClientRect(),"
+                 " t = document.querySelector('#fifBg .fd-tabs').getBoundingClientRect(); closeFIF();"
+                 " openQO(''); const b = document.getElementById('qoClose').getBoundingClientRect(),"
+                 " u = document.querySelector('#qoBg .fd-tabs').getBoundingClientRect(); closeQO();"
+                 " a.width > 0 && a.right <= t.right && t.right - a.right < 20 && b.width > 0 && b.right <= u.right && u.right - b.right < 20"))
+        closes("In Files: ✕ closes, editor gets the keyboard", "openFIF('x')", lambda: page.click("#fifClose"))
+        closes("In Files: Esc in the exclude box closes", "openFIF('x'); document.getElementById('fifExcl').focus()",
+               lambda: page.keyboard.press("Escape"))
+        closes("In Files: Esc in the search box closes", "openFIF('x')", lambda: page.keyboard.press("Escape"))
+        closes("In Files: Ctrl+Shift+F again closes", "openFIF('x')", lambda: page.keyboard.press("Control+Shift+F"))
+        closes("In Files: click outside closes", "openFIF('x')", lambda: page.mouse.click(5, 300))
+        closes("Files: ✕ closes", "openQO('')", lambda: page.click("#qoClose"))
+        closes("Commands: Esc closes", "openQO('>')", lambda: page.keyboard.press("Escape"))
+        closes("Symbols: ✕ closes", "openQO('#')", lambda: page.click("#qoClose"))
         ev("openSettings()")
         page.wait_for_selector("#settingsBg.show")
         page.wait_for_function("document.getElementById('setSearchIgnored').value.includes('build')")

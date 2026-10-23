@@ -452,6 +452,10 @@
   .fd-tab.active { background: var(--panel); color: var(--text); font-weight: 600; border-color: var(--border); }
   .fd-tab kbd { font: 10px var(--mono); color: var(--text-mute); margin-left: 4px; }
   .fd-sum { margin-left: auto; font: 11px var(--mono); color: var(--text-mute); padding-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fd-close { margin: 0 0 4px auto; flex: none; width: 26px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-dim); font-size: 14px; line-height: 1; cursor: pointer; }
+  .fd-sum + .fd-close { margin-left: 8px; }
+  .fd-close:hover { background: var(--hover); color: var(--text); border-color: var(--border); }
   .fd input.fd-input, .fif-head input[type=text]#fifQ { width: 100%; box-sizing: border-box; height: 44px; padding: 0 16px; font-size: 14px; font-family: var(--mono);
     border: none; border-bottom: 1px solid var(--border); outline: none; background: transparent; color: var(--text); border-radius: 0; }
   .fd-list { font-family: var(--mono); font-size: 12px; }
@@ -851,7 +855,7 @@
 </div>
 
 <!-- Find File (Quick Open, Ctrl+P) and Find in Files (Ctrl+Shift+F): one frame (.fd), same tabs / input / rows / keys -->
-<div class="qo-bg fd-bg" id="fifBg" onclick="if(event.target===this)closeFIF()">
+<div class="qo-bg fd-bg" id="fifBg" onclick="if(event.target===this)dismissFD()">
   <div class="fd fif">
     <div class="fd-tabs">
       <span class="fd-tab" data-fd="files" title="Find File (Ctrl+P)">Files <kbd>Ctrl+P</kbd></span>
@@ -859,6 +863,7 @@
       <span class="fd-tab" data-fd="cmd" title="Commands (Ctrl+Shift+P) — prefix >">Commands <kbd>&gt;</kbd></span>
       <span class="fd-tab" data-fd="sym" title="Symbols in the folder (Ctrl+T) — prefix #">Symbols <kbd>#</kbd></span>
       <span class="fd-sum" id="fifSummary"></span>
+      <button class="fd-close" id="fifClose" title="Close (Esc)" onclick="dismissFD()">✕</button>
     </div>
     <input type="text" id="fifQ" class="fd-input" placeholder="Find in Files — text in every file of the folder  (Tab: Find File)" autocomplete="off" spellcheck="false" />
     <div class="fif-opts" id="fifOpts">
@@ -889,13 +894,14 @@
   </div>
 </div>
 
-<div class="qo-bg fd-bg" id="qoBg" onclick="if(event.target===this)closeQO()">
+<div class="qo-bg fd-bg" id="qoBg" onclick="if(event.target===this)dismissFD()">
   <div class="fd qo">
     <div class="fd-tabs" id="qoModes">
       <span class="fd-tab" data-fd="files" title="Find File (Ctrl+P)">Files <kbd>Ctrl+P</kbd></span>
       <span class="fd-tab" data-fd="text" title="Find in Files (Ctrl+Shift+F) — prefix %">In Files <kbd>Ctrl+Shift+F</kbd></span>
       <span class="fd-tab" data-fd="cmd" title="Commands (Ctrl+Shift+P) — prefix >">Commands <kbd>&gt;</kbd></span>
       <span class="fd-tab" data-fd="sym" title="Symbols in the folder (Ctrl+T) — prefix #">Symbols <kbd>#</kbd></span>
+      <button class="fd-close" id="qoClose" title="Close (Esc)" onclick="dismissFD()">✕</button>
     </div>
     <input type="text" id="qoInput" class="fd-input" placeholder="Find File — file name  ·  >command  ·  %text in files  ·  #symbol  ·  @symbol in file  ·  :line" autocomplete="off" spellcheck="false" />
     <div class="hint" id="qoHint">
@@ -2941,6 +2947,19 @@ function toggleFIFReplace(force) {
 function closeFIF() {
   document.getElementById('fifBg').classList.remove('show');
 }
+// ✕, Esc, a click outside (and Ctrl+Shift+F again in Find in Files): close the
+// dialog and give the keyboard back to the active pane
+function dismissFD() {
+  if (!fifIsOpen() && !qoIsOpen()) return;
+  closeFIF();
+  closeQO();
+  focusPane(activePaneIdx);
+}
+document.getElementById('fifBg').addEventListener('keydown', e => {
+  if (e.defaultPrevented) return;
+  const c = _binds.bubble.get(keyCombo(e)) || _binds.capture.get(keyCombo(e));
+  if (e.key === 'Escape' || (c && c.id === 'edit.findInFiles')) { e.preventDefault(); e.stopPropagation(); dismissFD(); }
+});
 
 let _fifTimer = null;
 let _fifAbort = null;
@@ -3149,7 +3168,7 @@ document.getElementById('fifQ').addEventListener('keydown', e => {
     if (_fifSel >= 0 && _fifResults.length) openFIFHit(_fifResults[_fifSel], e.ctrlKey || e.metaKey);
     else runFIF();
   } else if (e.key === 'Escape') {
-    e.preventDefault(); closeFIF();
+    e.preventDefault(); dismissFD();
   } else if (e.key === 'ArrowDown') {
     if (_fifResults.length) {
       e.preventDefault();
@@ -3704,7 +3723,7 @@ document.getElementById('qoInput').addEventListener('keydown', e => {
     activateQO(_qoSel, e.ctrlKey || e.metaKey);
   } else if (e.key === 'Escape') {
     e.preventDefault();
-    closeQO();
+    dismissFD();
   } else if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && _qoMode !== 'pick' && !_qoFileHandler) {
     e.preventDefault();  // Find File ⇄ Find in Files, the typed text comes along
     fdSwitch('text', e.target.value);
@@ -4536,7 +4555,7 @@ async function toggleGitignore() {
 
 document.getElementById('fifRepl').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); previewReplace(); }
-  else if (e.key === 'Escape') { e.preventDefault(); closeFIF(); }
+  else if (e.key === 'Escape') { e.preventDefault(); dismissFD(); }
 });
 async function loadProjects() {
   try {

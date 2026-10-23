@@ -129,6 +129,9 @@ Changes since 0.1.0, not yet given a version number.
   words, regex, file mask, scope, context, Replace) kept between runs, `Alt+C` / `Alt+W` / `Alt+X`, recent searches when
   the box is empty, **show more** past the result cap (up to 20,000), `Ctrl+Enter` / `Ctrl+click` opens beside.
 - The title-bar search box names Find File and Find in Files and shortens its label on narrow windows.
+- The find dialog (Files · In Files · Commands · Symbols) has a **✕** at the right of its tab row. ✕, `Esc` (now
+  also from the mask / exclude boxes), a click outside and — in Find in Files — `Ctrl+Shift+F` again close it and
+  give the keyboard back to the editor.
 - **Find in Files searches the sources, not the build output and noise**:
   - **Defaults** toggle (on): the folders from Settings (build, dist, target, out, bin, obj, coverage …), `.idea`
     (with IntelliJ's shelf, `.idea/shelf/…/shelved.patch`), `.vs`, minified / bundled js and css, source maps

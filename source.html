@@ -474,14 +474,14 @@
   .fd-list .fd-recent-h { height: 24px; display: flex; align-items: center; padding: 0 16px; font: 600 11px inherit; color: var(--text-mute); text-transform: uppercase; letter-spacing: .06em; }
   .fd-foot { flex: none; padding: 5px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-mute); background: var(--side);
     border-radius: 0 0 10px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .fd .fif-opts { padding: 6px 12px; gap: 6px; border-bottom: 1px solid var(--border); flex-wrap: nowrap; }
+  .fd .fif-opts { padding: 6px 12px; gap: 6px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   .fd .fif-opts .fd-tg { display: inline-flex; align-items: center; height: 24px; min-width: 26px; justify-content: center; padding: 0 6px; border-radius: 4px;
     border: 1px solid var(--border); background: transparent; color: var(--text-dim); font: 600 11px var(--mono); cursor: pointer; }
   .fd .fif-opts .fd-tg input { display: none; }
   .fd .fif-opts .fd-tg:has(input:checked), .fd .fif-opts .fd-tg.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
     border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
   .fd .fif-opts .fd-sep { width: 1px; height: 16px; background: var(--border); }
-  .fd .fif-opts #fifGlob, .fd .fif-opts #fifExcl { flex: 1; max-width: none; min-width: 120px; }
+  .fd .fif-opts #fifGlob, .fd .fif-opts #fifExcl { flex: 1 1 150px; max-width: none; min-width: 120px; }
   .fd-list .res-file .fd-excl { display: none; padding: 0 6px; border-radius: 3px; color: var(--text-mute); font-weight: 400; font-size: 11px; }
   .fd-list .res-file:hover .fd-excl { display: inline; }
   .fd-list .res-file .fd-excl:hover { color: var(--accent); background: var(--bg); }
@@ -866,9 +866,9 @@
       <label class="fd-tg" title="Words (Alt+W)"><input type="checkbox" id="fifWord" />W</label>
       <label class="fd-tg" title="Regex (Alt+X)"><input type="checkbox" id="fifRegex" />.*</label>
       <span class="fd-sep"></span>
-      <input type="text" id="fifGlob" class="fif-glob" placeholder="file mask: *.java, src/**" title="files to include — comma-separated globs; empty = every text file" autocomplete="off" spellcheck="false" />
-      <input type="text" id="fifExcl" class="fif-glob" placeholder="exclude: dist/**, *.min.js" title="files and folders to leave out — comma-separated globs; a name (*.min.js, gen) matches at any depth, a path (src/gen/**) from the open folder" autocomplete="off" spellcheck="false" />
-      <label class="fd-tg" title="default excludes: the folders from Settings (build, dist, target, out, bin, obj, coverage …), .idea, .vs, minified and bundled js/css, source maps, lock files, *.shelved.path — always left out: the hidden names from Settings and binary files"><input type="checkbox" id="fifDefExcl" checked />Defaults</label>
+      <input type="text" id="fifGlob" class="fif-glob" placeholder="file mask: *.java, src/**, !*.patch" title="files to include — comma-separated globs; empty = every text file; !pattern leaves files out (like the exclude box)" autocomplete="off" spellcheck="false" />
+      <input type="text" id="fifExcl" class="fif-glob" placeholder="exclude: .idea/**, *.patch, dist/**" title="files and folders to leave out — comma-separated globs, matched at any depth (*.min.js, .idea/**, src/gen); a leading / starts at the open folder (/web/dist)" autocomplete="off" spellcheck="false" />
+      <label class="fd-tg" title="default excludes: the folders from Settings (build, dist, target, out, bin, obj, coverage …), .idea (with IntelliJ's shelf), .vs, minified and bundled js/css, source maps, *.tsbuildinfo, lock files, shelved.patch — always left out: the hidden names from Settings and binary files"><input type="checkbox" id="fifDefExcl" checked />Defaults</label>
       <select id="fifScope" title="search in">
         <option value="">whole folder</option>
       </select>
@@ -3024,10 +3024,10 @@ function renderFIFResults(data, term) {
     const cut = file.lastIndexOf('/');
     fh.innerHTML = fileBadge(file) + `<span class="qo-name">${escapeHtml(file.slice(cut + 1))}</span>` +
       (cut > 0 ? `<span class="qo-dir">${escapeHtml(file.slice(0, cut))}</span>` : '') + `<span class="cnt">${byFile[file].length}</span>` +
-      (cut > 0 ? `<span class="fd-excl" title="exclude this folder from the search (${escapeHtml(file.slice(0, cut))}/**)">⊘ folder</span>` : '');
+      (cut > 0 ? `<span class="fd-excl" title="exclude this folder from the search (/${escapeHtml(file.slice(0, cut))}/**)">⊘ folder</span>` : '');
     fh.title = file;
     fh.onclick = e => {
-      if (e.target.closest('.fd-excl')) addFIFExclude(file.slice(0, cut) + '/**');
+      if (e.target.closest('.fd-excl')) addFIFExclude('/' + file.slice(0, cut) + '/**');
       else openFIFHit(byFile[file][0], e.ctrlKey || e.metaKey);
     };
     c.appendChild(fh);

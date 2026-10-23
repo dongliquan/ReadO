@@ -121,20 +121,23 @@ BINARY_EXTS = frozenset("""
 
 # Left out of Find / Replace in Files while the search box's "default excludes"
 # toggle is on (with settings.search_ignored): IDE folders, minified / bundled
-# output, source maps, lock files and IDE shelf files - noise in a text search.
-# Quick Open keeps them so they can still be opened by name.
+# output, source maps, lock files and IntelliJ shelf patches (.idea/shelf/*/
+# shelved.patch, also when the shelf is kept outside .idea) - noise in a text
+# search. Quick Open keeps them so they can still be opened by name.
 SEARCH_DEFAULT_EXCLUDES = (".idea", ".vs", "*.min.js", "*.min.css", "*.min.mjs", "*.bundle.js", "*.chunk.js",
-                           "*.map", "*.shelved.path", "*.lock", "package-lock.json", "pnpm-lock.yaml",
+                           "*.map", "*.tsbuildinfo", "shelved.patch", "*.lock", "package-lock.json", "pnpm-lock.yaml",
                            "npm-shrinkwrap.json")
 EXCLUDE_MAX = 50           # patterns per search
 EXCLUDE_MAX_LEN = 200      # characters per pattern
 
 
 def parse_excludes(text):
-    """The search box's exclude patterns (comma or newline separated globs,
-    matched from the open folder: `dist/**`, `src/gen`, `*.min.js`) ->
-    (patterns, None) or (None, error). Refuses what could leave the folder or
-    read as an rg option: absolute paths, drive letters, `..`, a leading - or !."""
+    """The search box's exclude patterns (comma or newline separated globs) ->
+    (patterns, None) or (None, error). Like VS Code's: `*.min.js`, `.idea/**`,
+    `src/gen` match at any depth (the open folder often holds several
+    projects), a leading / anchors at the open folder (`/web/dist`). Refuses
+    what could leave the folder or read as an rg option: drive letters, `..`,
+    a leading - or !."""
     out = []
     for raw in re.split(r"[,\r\n]", str(text or "")):
         p = raw.strip().replace("\\", "/")
@@ -146,13 +149,29 @@ def parse_excludes(text):
             return None, f"exclude pattern is too long: {p[:40]}…"
         if any(ord(ch) < 32 for ch in p) or p[0] in "-!" or ":" in p or ".." in p.split("/"):
             return None, f"exclude pattern not allowed: {p}"
-        p = p.lstrip("/")  # "/dist" = from the open folder, which slash patterns already are
-        if p.endswith("/"):
-            p += "**"
+        anchored = p.startswith("/")
+        p = p.strip("/") + ("/**" if p.endswith("/") and p.strip("/") else "")
         if not p or p.count("[") != p.count("]") or p.count("{") != p.count("}"):
             return None, f"exclude pattern not allowed: {raw.strip()}"
+        if anchored:
+            p = "/" + p
+        elif "/" in p and not p.startswith("**/"):
+            p = "**/" + p
         out.append(p)
     return out, None
+
+
+def split_mask(glob, exclude):
+    """The file mask's `!pattern` entries are excludes too: (include mask,
+    exclude patterns, None) or (None, None, error)."""
+    inc, neg = [], []
+    for g in str(glob or "").split(","):
+        g = g.strip()
+        (neg if g.startswith("!") else inc).append(g[1:] if g.startswith("!") else g)
+    excludes, err = parse_excludes(",".join([str(exclude or "")] + neg))
+    if err:
+        return None, None, err
+    return ",".join(x for x in inc if x), excludes, None
 
 
 def _glob_rx(pat):
@@ -186,12 +205,13 @@ def _glob_rx(pat):
 def _exclude_matcher(patterns):
     """rel path -> excluded? Like rg's globs: a pattern without / matches a file
     or folder name at any depth, one with / the path from the open folder (the
-    file itself or any folder above it). None when there is nothing to match."""
+    file itself or any folder above it; parse_excludes gives the unanchored
+    ones a **/ prefix). None when there is nothing to match."""
     def rx(pats):
         return re.compile("(?:" + "|".join(f"(?:{_glob_rx(p)})" for p in pats) + r")\Z", re.IGNORECASE) if pats else None
 
     name_re = rx([p for p in patterns if "/" not in p])
-    path_re = rx([p for p in patterns if "/" in p])
+    path_re = rx([p.lstrip("/") for p in patterns if "/" in p])
     if not name_re and not path_re:
         return None
 
@@ -1336,7 +1356,7 @@ def find_in_files(query: str, case_sensitive: bool, regex: bool, whole_word: boo
     scope_root = _safe_join(base, scope) if scope else base
     if not scope_root or not os.path.isdir(scope_root):
         return {"error": "invalid scope", "results": []}
-    excludes, err = parse_excludes(exclude)
+    glob, excludes, err = split_mask(glob, exclude)
     if err:
         return {"error": err, "results": []}
     if not query:
@@ -3626,9 +3646,9 @@ def _replace_query(data):
     scope_root = _safe_join(base, scope) if scope else base
     if not scope_root or not os.path.isdir(scope_root):
         return None, None, None, "invalid scope"
-    if not isinstance(data.get("exclude") or "", str):
-        return None, None, None, "exclude must be text"
-    err = parse_excludes(data.get("exclude"))[1]
+    if not isinstance(data.get("exclude") or "", str) or not isinstance(data.get("glob") or "", str):
+        return None, None, None, "file mask and exclude must be text"
+    err = split_mask(data.get("glob"), data.get("exclude"))[2]
     if err:
         return None, None, None, err
     return pat, _make_replacer(replacement, regex), scope_root, None
@@ -3637,8 +3657,8 @@ def _replace_query(data):
 def _replace_candidates(data, pat, scope_root):
     """Relative paths of files that may contain a match (rg -l, or a scan)."""
     base = base_root()
-    glob = data.get("glob") or ""
-    excludes = parse_excludes(data.get("exclude"))[0] or []
+    glob, excludes = split_mask(data.get("glob"), data.get("exclude"))[:2]
+    glob, excludes = glob or "", excludes or []
     defaults = data.get("default_excludes") is not False
     rg = _rg_path()
     if rg:

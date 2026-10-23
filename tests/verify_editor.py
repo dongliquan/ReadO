@@ -258,8 +258,10 @@ def setup():
     w(os.path.join(p, "sub", "deep.java"), "class Deep {}\n")
     # Find in Files excludes: default noise next to source, a folder to exclude by hand
     xs = os.path.join(BASE, "xs")
-    for name in ("app.js", "app.min.js", "app.js.map", ".shelved.path", "yarn.lock",
-                 os.path.join("gen", "g.js"), os.path.join("build", "b.js"), os.path.join(".idea", "w.xml")):
+    for name in ("app.js", "app.min.js", "app.js.map", "yarn.lock", "tsconfig.tsbuildinfo", os.path.join("gen", "g.js"),
+                 os.path.join("build", "b.js"), os.path.join(".idea", "w.xml"),
+                 os.path.join(".idea", "shelf", "Uncommitted_changes_[x]", "shelved.patch"),  # IntelliJ shelf
+                 os.path.join("shelf", "s1", "shelved.patch")):                                 # shelf kept outside .idea
         w(os.path.join(xs, name), "xneedle\n")
     w(os.path.join(OUT, "ext.txt"), "outside file\n")
     w(os.path.join(OUT, "secret.txt"), "not granted\n")
@@ -844,17 +846,27 @@ def main():
         def xpaths(qs=""):
             d = ev(f"fetch('/api/search?q=xneedle{qs}').then(r => r.json())")
             return d.get("error") or sorted(r["path"] for r in d.get("results", []))
-        xs_all = ["xs/.idea/w.xml", "xs/.shelved.path", "xs/app.js", "xs/app.js.map", "xs/app.min.js",
-                  "xs/build/b.js", "xs/gen/g.js", "xs/yarn.lock"]
+        xs_all = ["xs/.idea/shelf/Uncommitted_changes_[x]/shelved.patch", "xs/.idea/w.xml", "xs/app.js", "xs/app.js.map",
+                  "xs/app.min.js", "xs/build/b.js", "xs/gen/g.js", "xs/shelf/s1/shelved.patch", "xs/tsconfig.tsbuildinfo",
+                  "xs/yarn.lock"]
         for engine in ("rg", "python"):
             server.USE_RIPGREP = engine == "rg"
             got = xpaths()
-            check(f"default excludes skip .min.js / .map / .shelved.path / lock / .idea / build ({engine})",
+            check(f"default excludes skip .min.js / .map / lock / .idea (shelf too) / shelved.patch / build ({engine})",
                   got == ["xs/app.js", "xs/gen/g.js"], str(got))
             got = xpaths("&defexcl=0")
             check(f"default excludes off: all of them are searched ({engine})", got == xs_all, str(got))
+            got = xpaths("&defexcl=0&exclude=.idea/**")
+            check(f"exclude .idea/** (any depth) with defaults off: no IntelliJ shelf hits ({engine})",
+                  not any("/.idea/" in p for p in got) and "xs/app.js" in got, str(got))
+            got = xpaths("&exclude=/xs/gen")
+            check(f"exclude /path: anchored at the open folder ({engine})", got == ["xs/app.js"], str(got))
+            got = xpaths("&exclude=/gen")
+            check(f"exclude /gen does not match xs/gen ({engine})", got == ["xs/app.js", "xs/gen/g.js"], str(got))
+            got = xpaths("&glob=" + urllib.parse.quote("*.js, !gen"))
+            check(f"file mask: !pattern excludes ({engine})", got == ["xs/app.js"], str(got))
             got = xpaths("&exclude=xs/gen/**")
-            check(f"exclude path pattern from the open folder ({engine})", got == ["xs/app.js"], str(got))
+            check(f"exclude path pattern ({engine})", got == ["xs/app.js"], str(got))
             got = xpaths("&exclude=gen")
             check(f"exclude name pattern at any depth ({engine})", got == ["xs/app.js"], str(got))
             got = xpaths("&scope=xs&exclude=xs/gen")
@@ -863,6 +875,8 @@ def main():
         for bad in ("../x", "xs/../..", "-e", "!x", "C:/x", "[a"):
             got = xpaths("&exclude=" + urllib.parse.quote(bad))
             check(f"exclude pattern refused: {bad}", isinstance(got, str) and "not allowed" in got, str(got))
+        got = xpaths("&glob=" + urllib.parse.quote("*.js, !../x"))
+        check("file mask !pattern is checked like the exclude box", isinstance(got, str) and "not allowed" in got, str(got))
         st, body = raw_post("/api/replace-preview", {"q": "xneedle", "replace": "y", "scope": "xs", "exclude": "gen"},
                             server.CSRF_TOKEN)
         check("replace preview honours the excludes", st == 200 and [f["path"] for f in body.get("files", [])] == ["xs/app.js"],
@@ -876,13 +890,24 @@ def main():
         ev("[...document.querySelectorAll('#fifResults .res-file')].find(e => e.title === 'xs/gen/g.js').querySelector('.fd-excl').click()")
         page.wait_for_function("_fifResults.length === 1", timeout=8000)
         check("'⊘ folder' adds the result's folder to the excludes",
-              ev("document.getElementById('fifExcl').value") == "xs/gen/**" and ev("_fifResults[0].path") == "xs/app.js")
+              ev("document.getElementById('fifExcl').value") == "/xs/gen/**" and ev("_fifResults[0].path") == "xs/app.js")
         ev("document.getElementById('fifDefExcl').click()")
-        page.wait_for_function("_fifResults.length === 7", timeout=8000)
+        page.wait_for_function("_fifResults.length === 9", timeout=8000)
         check("Defaults toggle off searches the default-excluded files", True)
         check("exclude options kept in the saved UI state",
-              ev("STATE.fifOpts.exclude === 'xs/gen/**' && STATE.fifOpts.defExcl === false"))
-        ev("document.getElementById('fifDefExcl').click(); document.getElementById('fifExcl').value = ''; saveFIFOpts(); closeFIF()")
+              ev("STATE.fifOpts.exclude === '/xs/gen/**' && STATE.fifOpts.defExcl === false"))
+        ev("document.getElementById('fifDefExcl').click(); document.getElementById('fifExcl').value = ''; saveFIFOpts()")
+        vp = page.viewport_size
+        page.set_viewport_size({"width": 640, "height": 600})
+        fit = ev("""(() => { const row = document.getElementById('fifOpts').getBoundingClientRect();
+            return ['fifGlob', 'fifExcl', 'fifDefExcl', 'fifScope', 'fifReplToggle'].map(id => {
+              const e = document.getElementById(id), r = (e.type === 'checkbox' ? e.parentElement : e).getBoundingClientRect();
+              return id + ':' + (r.width > 0 && r.left >= row.left - 1 && r.right <= row.right + 1 && r.bottom <= row.bottom + 1);
+            }).join(' ') + ' overflow:' + (document.getElementById('fifOpts').scrollWidth > document.getElementById('fifOpts').clientWidth); })()""")
+        check("narrow window: mask, exclude and Defaults stay visible (the option row wraps)",
+              "false" not in fit.split(" overflow:")[0] and fit.endswith("overflow:false"), fit)
+        page.set_viewport_size(vp)
+        ev("closeFIF()")
         ev("openSettings()")
         page.wait_for_selector("#settingsBg.show")
         page.wait_for_function("document.getElementById('setSearchIgnored').value.includes('build')")

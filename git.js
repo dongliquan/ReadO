@@ -253,7 +253,7 @@ function repoLine(repo) {
   return `저장소: ${(repo ? repo.root : '').replace(/\//g, '\\')}${b ? ` (현재 브랜치: ${b})` : ''}`;
 }
 const AGENT = {
-  commit: c => `다음 파일만 커밋해 줘:\n${c.files.map(f => '- ' + f).join('\n')}\n\n커밋 메시지(초안): ${c.message || '<변경 내용을 보고 작성>'}\n${c.amend ? '직전 커밋에 amend 해 줘.\n' : ''}커밋 전에 diff를 확인하고, 목록에 없는 변경은 건드리지 마.`,
+  commit: c => `다음 파일만 커밋해 줘:\n${c.files.map(f => '- ' + f).join('\n')}\n\n커밋 메시지(초안): ${c.message || '<변경 내용을 보고 작성>'}\n${c.body ? '본문(초안):\n' + c.body + '\n' : ''}${c.amend ? '직전 커밋에 amend 해 줘.\n' : ''}커밋 전에 diff를 확인하고, 목록에 없는 변경은 건드리지 마.`,
   rollback: c => `다음 파일의 로컬 변경을 되돌려 줘(되돌리기 전에 diff를 보여 주고 확인을 받아 줘):\n${c.files.map(f => '- ' + f).join('\n')}`,
   resolve: c => `현재 ${c.state || '머지'} 중이고 충돌 파일이 있어. 충돌을 해결해 줘(해결 방향이 애매하면 먼저 물어봐 줘):\n${c.files.map(f => '- ' + f).join('\n')}`,
   push: c => `현재 브랜치${c.branch ? ' ' + c.branch : ''}를 ${c.upstream || '원격'}으로 push 해 줘. 먼저 ahead/behind를 확인하고, force push는 하지 마.`,
@@ -765,7 +765,8 @@ function buildTree(files) {
 }
 const countFiles = n => n.files.length + [...n.dirs.values()].reduce((a, d) => a + countFiles(d), 0);
 function FileTree(container, opts) {
-  const self = { groups: [], collapsed: new Set(opts.collapsed || []), sel: null, checked: new Set(), rows: [], container };
+  // multi (opts.multi): Ctrl / Shift + click select several files; dnd: files dragged onto a group with g.drop
+  const self = { groups: [], collapsed: new Set(opts.collapsed || []), sel: null, multi: new Set(), checked: new Set(), rows: [], container };
   container.tabIndex = 0;
   self.set = (groups, keepChecks) => {
     self.groups = groups;
@@ -779,22 +780,26 @@ function FileTree(container, opts) {
   // move the selection (diff modal prev / next) without re-rendering; scroll only if it is out of view
   self.selectId = id => {
     self.sel = id;
+    self.multi = new Set([id]);
     let hit = null;
     container.querySelectorAll('.gt-row').forEach(r => { const on = r.dataset.id === id; r.classList.toggle('sel', on); if (on) hit = r; });
     if (hit) hit.scrollIntoView({ block: 'nearest' });
   };
+  const paintSel = () => container.querySelectorAll('.gt-row').forEach(r => r.classList.toggle('sel', r.dataset.id === self.sel || self.multi.has(r.dataset.id)));
+  // the selected file rows (several with Ctrl / Shift + click)
+  self.selectedRows = () => self.rows.filter(r => r.file && (self.multi.has(r.id) || r.id === self.sel));
   self.checkedFiles = () => self.groups.flatMap(g => g.files.filter(f => self.checked.has(g.id + '|' + f.path)));
   function render() {
     const out = [];
     self.rows = [];
-    const push = (id, html, row) => { self.rows.push(Object.assign({ id }, row)); out.push(html.replace('<div class="gt-row', `<div data-id="${esc(id)}" class="gt-row${self.sel === id ? ' sel' : ''}`)); };
+    const push = (id, html, row) => { self.rows.push(Object.assign({ id }, row)); out.push(html.replace('<div class="gt-row', `<div data-id="${esc(id)}" class="gt-row${self.sel === id || self.multi.has(id) ? ' sel' : ''}`)); };
     for (const g of self.groups) {
       const gid = 'g:' + g.id;
       const open = !self.collapsed.has(gid);
       if (opts.showGroups !== false) {
-        push(gid, `<div class="gt-row group" style="padding-left:4px"><span class="tw">${open ? '▾' : '▸'}</span>` +
+        push(gid, `<div class="gt-row group${g.active ? ' active' : ''}${g.drop ? ' droppable' : ''}" style="padding-left:4px"${g.title ? ` title="${esc(g.title)}"` : ''}><span class="tw">${open ? '▾' : '▸'}</span>` +
           (opts.checkable && g.checkable !== false ? `<input type="checkbox" data-chk="${esc(gid)}"${g.files.length && g.files.every(f => self.checked.has(g.id + '|' + f.path)) ? ' checked' : ''}>` : '') +
-          `<span class="nm">${esc(g.label)}</span><span class="cnt">${g.files.length} file${g.files.length === 1 ? '' : 's'}</span></div>`, { group: g });
+          `<span class="nm">${esc(g.label)}</span>${g.active ? '<span class="tag act">active</span>' : ''}<span class="cnt">${g.files.length} file${g.files.length === 1 ? '' : 's'}</span></div>`, { group: g });
       }
       if (!open) continue;
       const walk = (node, prefix, depth, gpath) => {
@@ -813,7 +818,7 @@ function FileTree(container, opts) {
         for (const f of node.files.slice().sort((a, b) => a.path.localeCompare(b.path))) {
           const id = g.id + '|' + f.path;
           const name = f.path.replace(/\/$/, '').split('/').pop() + (f.path.endsWith('/') ? '/' : '');
-          push(id, `<div class="gt-row ${f.cls || ''}" style="padding-left:${depth * 16 + 4}px"><span class="tw"></span>` +
+          push(id, `<div class="gt-row ${f.cls || ''}" style="padding-left:${depth * 16 + 4}px"${opts.dnd && g.drag ? ' draggable="true"' : ''}><span class="tw"></span>` +
             (opts.checkable && g.checkable !== false ? `<input type="checkbox" data-chk="${esc(id)}"${self.checked.has(id) ? ' checked' : ''}>` : '') +
             `<span class="st">${esc(f.st || '')}</span><span class="nm">${esc(name)}</span>` +
             (f.orig ? `<span class="dim">← ${esc(f.orig)}</span>` : '') + (f.tag ? `<span class="tag">${esc(f.tag)}</span>` : '') +
@@ -839,11 +844,56 @@ function FileTree(container, opts) {
       return;
     }
     if (!row) return;
+    if (opts.multi && row.file && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+      if (e.shiftKey) {  // a range of file rows from the last plain / Ctrl click
+        const files = self.rows.filter(r => r.file);
+        const a = files.findIndex(r => r.id === (self.anchor || self.sel)), b = files.findIndex(r => r.id === row.id);
+        const [i, j] = a < 0 ? [b, b] : [Math.min(a, b), Math.max(a, b)];
+        self.multi = new Set(files.slice(i, j + 1).map(r => r.id));
+      } else {
+        if (self.multi.has(row.id) && self.multi.size > 1) self.multi.delete(row.id); else self.multi.add(row.id);
+        self.anchor = row.id;
+      }
+      self.sel = row.id;
+      return paintSel();
+    }
     self.sel = row.id;
+    self.anchor = row.id;
+    self.multi = new Set([row.id]);
     if (!row.file) return toggle(row);
     self.selectId(row.id);
     if (opts.onFile) opts.onFile(row);  // single click: the diff (Local Changes: the right pane; elsewhere: a diff window)
   });
+  if (opts.dnd) {  // drag the selected files onto a group (Local Changes: a changelist)
+    const MIME = 'application/x-reado-files';
+    const dropRow = e => { const r = rowOf(e); return r && !r.file && !r.dir && r.group && r.group.drop ? r : null; };
+    container.addEventListener('dragstart', e => {
+      const row = rowOf(e);
+      if (!row || !row.file) return;
+      if (!self.multi.has(row.id)) { self.sel = row.id; self.multi = new Set([row.id]); paintSel(); }
+      self.dragging = self.selectedRows().filter(r => r.group.drag);
+      e.dataTransfer.setData(MIME, JSON.stringify(self.dragging.map(r => r.file.path)));
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    container.addEventListener('dragend', () => { self.dragging = null; container.querySelectorAll('.drop-on').forEach(x => x.classList.remove('drop-on')); });
+    container.addEventListener('dragover', e => {
+      if (!self.dragging || ![...e.dataTransfer.types].includes(MIME)) return;
+      const r = dropRow(e);
+      container.querySelectorAll('.drop-on').forEach(x => x.classList.remove('drop-on'));
+      if (!r) return;
+      e.preventDefault(); e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      e.target.closest('.gt-row').classList.add('drop-on');
+    });
+    container.addEventListener('drop', e => {
+      const r = dropRow(e), rows = self.dragging;
+      container.querySelectorAll('.drop-on').forEach(x => x.classList.remove('drop-on'));
+      if (!r || !rows) return;
+      e.preventDefault(); e.stopPropagation();
+      self.dragging = null;
+      if (opts.onDrop) opts.onDrop(r.group, rows);
+    });
+  }
   container.addEventListener('dblclick', e => {
     const row = rowOf(e);
     if (row && row.file && opts.onOpen && !(e.target.dataset && e.target.dataset.chk)) opts.onOpen(row);
@@ -853,8 +903,8 @@ function FileTree(container, opts) {
     if (!row || !opts.onMenu) return;
     e.preventDefault();
     self.sel = row.id;
-    container.querySelectorAll('.gt-row.sel').forEach(r => r.classList.remove('sel'));
-    e.target.closest('.gt-row').classList.add('sel');
+    if (!self.multi.has(row.id)) self.multi = new Set([row.id]);  // a right-click inside the selection keeps it
+    paintSel();
     opts.onMenu(e, row.file, row.group, row);
   });
   container.addEventListener('keydown', e => {
@@ -862,7 +912,7 @@ function FileTree(container, opts) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const n = Math.max(0, Math.min(self.rows.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)));
-      if (self.rows[n]) { self.sel = self.rows[n].id; render(); const s = container.querySelector('.sel'); if (s) s.scrollIntoView({ block: 'nearest' });
+      if (self.rows[n]) { self.sel = self.anchor = self.rows[n].id; self.multi = new Set([self.sel]); render(); const s = container.querySelector('.sel'); if (s) s.scrollIntoView({ block: 'nearest' });
         if (opts.onSelect && self.rows[n].file) opts.onSelect(self.rows[n]);
       }
     } else if ((e.key === 'Enter' || (e.key === 'd' && e.ctrlKey)) && i >= 0) {
@@ -1120,7 +1170,8 @@ const Changes = {
     this.bar = p.querySelector('.gw-bar');
     this.banner = p.querySelector('.gw-banner');
     this.tree = FileTree(p.querySelector('.gw-scroll'), {
-      checkable: true, empty: 'no local changes',
+      checkable: true, empty: 'no local changes', multi: true, dnd: true,
+      onDrop: (g, rows) => this.moveTo(rows.map(r => r.file), g.cl.id),
       onFile: row => this.select(row),                                   // click: the diff on the right
       onSelect: row => { clearTimeout(this._selT); this._selT = setTimeout(() => this.select(row), 60); },  // ↑ / ↓
       onOpen: row => this.diff(row), onEnter: row => this.diff(row),     // double-click / Enter: a diff window
@@ -1160,19 +1211,117 @@ const Changes = {
     if (!files.length) return showToast('tick the files first', true);
     agentDialog(action, { files });
   },
+  // the files a menu acts on: the selected files (several with Ctrl / Shift), or everything under a folder / group row
+  targets(row) {
+    const sel = this.tree.selectedRows();
+    if (row.file) return sel.length > 1 && sel.some(r => r.id === row.id) ? sel.map(r => r.file) : [row.file];
+    return row.group.files.filter(f => !row.dir || f.path.startsWith(row.dir + '/'));
+  },
+  // Commit for AgentO: a changelist's name and description are the message draft
+  commit(files, cl) {
+    files = files.filter(f => f.raw.kind !== 'conflicted').map(f => f.path);
+    if (!files.length) return showToast('nothing to commit', true);
+    const own = cl && cl.id !== 'default';
+    agentDialog('commit', { files, message: own ? cl.name : cl && cl.desc ? cl.desc.split('\n')[0] : '', body: own ? cl.desc : '' });
+  },
   menu(e, f, row) {
-    if (!f) return;
-    const raw = f.raw, key = keyFor(G.repo, raw.path);
+    const files = this.targets(row), g = row.group, cl = g.cl || null;
+    const raw = f && f.raw, key = raw && keyFor(G.repo, raw.path);
+    const lists = (G.status.changelists || {}).lists || [];
+    const one = files.length === 1 && row.file;
+    // the changelist the files are in, when they all are in one (message draft)
+    const inLists = new Set(files.map(x => x.clId));
+    const ofFiles = inLists.size === 1 ? lists.find(l => l.id === [...inLists][0]) || null : null;
     showMenu(e.clientX, e.clientY, [
-      { label: 'Show Diff in Window', hint: 'double-click / Enter', run: () => this.diff(row) },
-      { label: 'Open File', disabled: !key || raw.kind === 'deleted', run: () => openFile(key) },
-      { label: 'Show History', disabled: raw.kind === 'untracked' || raw.kind === 'added', run: () => openHistory(G.repo, raw.orig || raw.path) },
-      { label: 'Copy Path', run: () => copy(raw.path, 'path') },
+      { label: 'Commit… (AgentO)', disabled: !files.some(x => x.raw.kind !== 'conflicted'), run: () => this.commit(files, ofFiles) },
+      { label: 'Rollback… (AgentO)', disabled: !files.length, run: () => agentDialog('rollback', { files: files.map(x => x.path) }) },
+      { label: 'Show Diff', hint: one ? 'double-click / Enter' : '', disabled: !files.length,
+        run: () => one ? this.diff(row) : openDiffWin(files.map(x => x.raw), 0, x => specLocal(G.repo, x), { ident: x => 'L:' + G.repo.root + '|' + x.path, repo: G.repo, desc: x => descLocal(G.repo, x) }) },
+      ...(row.file ? [
+        { label: 'Open File', disabled: !one || !key || raw.kind === 'deleted', run: () => openFile(key) },
+        { label: 'Show History', disabled: !one || raw.kind === 'untracked' || raw.kind === 'added', run: () => openHistory(G.repo, raw.orig || raw.path) },
+        { label: 'Copy Path', run: () => copy(files.map(x => x.path).join('\n'), files.length > 1 ? 'paths' : 'path') },
+      ] : []),
       'sep',
-      { label: 'Commit This File… (AgentO)', disabled: raw.kind === 'conflicted', run: () => agentDialog('commit', { files: [raw.path] }) },
-      { label: 'Rollback… (AgentO)', run: () => agentDialog('rollback', { files: [raw.path] }) },
-      { label: 'Resolve Conflict… (AgentO)', disabled: raw.kind !== 'conflicted', run: () => agentDialog('resolve', { files: [raw.path], state: G.repo.state }) },
+      { label: 'Move to Changelist…', disabled: !files.some(x => x.raw.kind !== 'conflicted'), run: () => this.movePick(e, files) },
+      { label: 'New Changelist…', run: () => this.editDialog(null, []) },
+      { label: 'Edit Changelist…', disabled: !cl, run: () => this.editDialog(cl) },
+      { label: 'Delete Changelist', disabled: !cl || cl.id === 'default', run: () => this.remove(cl, g.files.length) },
+      { label: 'Set Active Changelist', disabled: !cl || lists.length < 2 || !!g.active, run: () => this.clOp({ op: 'active', id: cl.id }) },
+      'sep',
+      { label: 'Resolve Conflict… (AgentO)', disabled: !files.some(x => x.raw.kind === 'conflicted'),
+        run: () => agentDialog('resolve', { files: files.filter(x => x.raw.kind === 'conflicted').map(x => x.path), state: G.repo.state }) },
+      { label: 'Refresh', run: () => loadStatus(true).then(() => this.render()) },
     ]);
+  },
+  // ---- changelists (ReadO's own metadata; git is not touched) ----
+  async clOp(body) {
+    const repo = G.repo;
+    const r = await postJson('/api/git/changelist', Object.assign({ repo: repo.root }, body));
+    const d = r.data || {};
+    if (!d.ok) { if (body.op !== 'new' && body.op !== 'edit') showToast('changelist: ' + (d.detail || d.error || r.status), true); return d; }
+    if (G.repo === repo && G.status && !G.status.error) {
+      G.status.changelists = { lists: d.lists, active: d.active, files: d.files };
+      this.render();
+    }
+    return d;
+  },
+  moveTo(files, to) {
+    const paths = files.filter(f => f.raw.kind !== 'conflicted').map(f => f.path);
+    if (paths.length) return this.clOp({ op: 'move', to, files: paths });
+  },
+  movePick(e, files) {
+    const cl = (G.status.changelists || {});
+    const count = id => this.tree.groups.filter(g => g.cl && g.cl.id === id).reduce((a, g) => a + g.files.length, 0);
+    const items = (cl.lists || []).map(l => ({ value: l.id, label: l.name, hint: (l.id === cl.active ? 'active · ' : '') + count(l.id) + ' files' }));
+    if (files.some(f => f.raw.kind === 'untracked')) items.push({ value: 'unversioned', label: 'Unversioned Files', hint: 'untracked files only' });
+    items.push({ value: '+new', label: 'New Changelist…', cls: 'new' });
+    const anchor = { getBoundingClientRect: () => ({ left: e.clientX, top: e.clientY, bottom: e.clientY }) };
+    pickList(anchor, items, { placeholder: 'move ' + files.length + ' file' + (files.length === 1 ? '' : 's') + ' to…', width: 280,
+      onPick: v => v === '+new' ? this.editDialog(null, files) : this.moveTo(files, v) });
+  },
+  async remove(cl, n) {
+    const a = await askChoice('Delete Changelist', `Delete the changelist "${cl.name}"?` + (n ? `\n\nIts ${n} file${n === 1 ? '' : 's'} move to "Changes". Files and git are not changed.` : ''),
+      [{ label: 'delete', value: 'ok', primary: true }, { label: 'cancel', value: 'cancel' }]);
+    if (a === 'ok' || (a && a.value === 'ok')) this.clOp({ op: 'delete', id: cl.id });
+  },
+  // New (cl null; files: moved into it) or Edit Changelist
+  editDialog(cl, files) {
+    const bg = el('div', 'gx-bg');
+    bg.innerHTML = `<div class="gx-dlg gcl-dlg"><h3>${cl ? 'Edit Changelist' : 'New Changelist'}</h3>
+      <div class="sub">A changelist groups local changes in ReadO only — git, the index and the files are not changed.${files && files.length ? ` ${files.length} file${files.length === 1 ? '' : 's'} will move into it.` : ''}</div>
+      <label>Name<input class="nm" maxlength="60" spellcheck="false"></label>
+      <label>Description (commit message draft)<textarea class="ds" maxlength="1000" spellcheck="false"></textarea></label>
+      ${cl ? '' : '<label class="ck"><input type="checkbox" class="ac"> Set active (new changes go to this changelist)</label>'}
+      <div class="row"><span class="note err"></span><button data-a="cancel">cancel</button><button data-a="go" class="primary">${cl ? 'save' : 'create'}</button></div></div>`;
+    const nm = bg.querySelector('.nm'), ds = bg.querySelector('.ds'), err = bg.querySelector('.err');
+    if (cl) { nm.value = cl.name; ds.value = cl.desc || ''; if (cl.id === 'default') nm.title = 'the default changelist'; }
+    const close = () => { bg.remove(); document.removeEventListener('keydown', onKey, true); };
+    const go = async () => {
+      const name = nm.value.trim();
+      if (!name) { err.textContent = 'enter a name'; return nm.focus(); }
+      if (/[\x00-\x1f\x7f]/.test(name)) { err.textContent = 'no control characters in the name'; return nm.focus(); }
+      const lists = (G.status.changelists || {}).lists || [];
+      if (lists.some(l => l.name.toLowerCase() === name.toLowerCase() && (!cl || l.id !== cl.id))) { err.textContent = `"${name}" already exists`; return nm.focus(); }
+      const body = cl ? { op: 'edit', id: cl.id, name, desc: ds.value } : { op: 'new', name, desc: ds.value, active: bg.querySelector('.ac').checked };
+      if (!cl && files && files.length) body.files = files.filter(f => f.raw.kind !== 'conflicted').map(f => f.path);
+      const d = await this.clOp(body);
+      if (d.ok) return close();
+      err.textContent = d.error === 'name_taken' ? `"${name}" already exists` : d.error === 'too_many' ? 'too many changelists' : 'could not save: ' + (d.detail || d.error || '');
+    };
+    const onKey = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+      else if (e.key === 'Enter' && e.target === nm) { e.preventDefault(); go(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    bg.addEventListener('mousedown', e => { if (e.target === bg) close(); });
+    bg.querySelector('.row').addEventListener('click', e => {
+      const a = e.target.dataset && e.target.dataset.a;
+      if (a === 'cancel') close();
+      if (a === 'go') go();
+    });
+    document.body.appendChild(bg);
+    nm.focus(); nm.select();
   },
   async show() {
     if (!this.built) this.build();
@@ -1186,23 +1335,39 @@ const Changes = {
     const mk = f => ({ path: f.path, orig: f.orig, st: KIND_ST[f.kind] || 'M', cls: 'k-' + f.kind + (f.eol ? ' k-eol' : ''), raw: f,
       tag: f.eol ? 'line endings only' : f.kind === 'untracked' || f.kind === 'conflicted' ? '' : f.staged && f.unstaged ? 'partly staged' : f.staged ? 'staged' : '' });
     const shown = shownFiles(st);
-    const conf = shown.filter(f => f.kind === 'conflicted').map(mk);
-    const unv = shown.filter(f => f.kind === 'untracked').map(mk);
-    const chg = shown.filter(f => f.kind !== 'conflicted' && f.kind !== 'untracked').map(mk);
+    // changelists: the default one ("Changes", group id "changes") and the user's; untracked files
+    // not filed in one stay under Unversioned Files, conflicts under Merge Conflicts
+    const cl = st.changelists || { lists: [{ id: 'default', name: 'Changes', desc: '' }], active: 'default', files: {} };
+    const many = cl.lists.length > 1;
+    const inList = new Map(cl.lists.map(l => [l.id, []]));
+    const conf = [], unv = [];
+    for (const f of shown) {
+      const id = cl.files[f.path];
+      if (f.kind === 'conflicted') conf.push(mk(f));
+      else if (f.kind === 'untracked' && !inList.has(id)) unv.push(mk(f));
+      else inList.get(inList.has(id) ? id : 'default').push(Object.assign(mk(f), { clId: inList.has(id) ? id : 'default' }));
+    }
     const eb = this.bar.querySelector('[data-a="eol"]');
     eb.classList.toggle('on', !!S().showEol);
     eb.style.display = st.eol_only || S().showEol ? '' : 'none';
     const groups = [];
     if (conf.length) groups.push({ id: 'conflicts', label: 'Merge Conflicts', files: conf, check: false });
-    groups.push({ id: 'changes', label: 'Changes', files: chg, check: true });
-    if (unv.length) groups.push({ id: 'unversioned', label: 'Unversioned Files', files: unv, check: false });
-    const sig = JSON.stringify(shown.map(f => f.path + f.x + f.y + (f.eol ? 'e' : '')));
+    for (const l of cl.lists) {
+      groups.push({ id: l.id === 'default' ? 'changes' : 'cl:' + l.id, label: l.name, files: inList.get(l.id), check: true, cl: l,
+        active: many && l.id === cl.active, title: l.desc || '', drop: true, drag: true });
+    }
+    if (unv.length) groups.push({ id: 'unversioned', label: 'Unversioned Files', files: unv, check: false, drag: true });
+    const isList = id => !id.startsWith('conflicts|') && !id.startsWith('unversioned|');
+    const sig = JSON.stringify([shown.map(f => f.path + f.x + f.y + (f.eol ? 'e' : '')), cl]);
     if (this._sig !== sig) {
       this._sig = sig;
       const ids = groups.flatMap(g => g.files.map(f => g.id + '|' + f.path));
-      if (!this._known) this.tree.set(groups, false);  // first time: everything under Changes ticked
-      else {  // keep the user's ticks; files that are new under Changes start ticked
-        const keep = new Set(ids.filter(id => this.tree.checked.has(id) || (!this._known.has(id) && id.startsWith('changes|'))));
+      if (!this._known) this.tree.set(groups, false);  // first time: everything in the changelists ticked
+      else {  // keep the user's ticks (also across a move to another changelist); files new in a changelist start ticked
+        const pathOf = id => id.slice(id.indexOf('|') + 1);
+        const was = new Set([...this._known].filter(isList).map(pathOf));
+        const on = new Set([...this.tree.checked].filter(isList).map(pathOf));
+        const keep = new Set(ids.filter(id => this.tree.checked.has(id) || (isList(id) && (on.has(pathOf(id)) || !was.has(pathOf(id))))));
         this.tree.checked = keep;
         this.tree.set(groups, true);
       }

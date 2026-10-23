@@ -40,6 +40,7 @@ Endpoints (GET, read guard; POST via server.write_api):
   POST /api/git/fetch                   -> fetch --prune (guarded)
   POST /api/git/checkout                -> switch to a local branch / track a remote one (guarded)
   POST /api/git/agento-request          -> agento://dispatch deep link for Commit / Push (guarded)
+  POST /api/git/changelist              -> changelists: new / edit / delete / active / move (guarded; ReadO's own file)
 """
 import collections
 import os
@@ -47,6 +48,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 
@@ -1789,6 +1791,240 @@ def api_agento_request(data):
     return dict(out, sent=True)
 
 
+# ----- changelists (IntelliJ-style groups of local changes) -----
+# git has no changelists: ReadO keeps them per repository in %APPDATA%\ReadO\changelists.json
+# (next to config.json; nothing inside the repository) and never touches the index, the working
+# tree or git config for them. Per repository: {"lists": [{id, name, desc}], "active": id,
+# "files": {path: list id}}. The default list "Changes" (id "default") always exists and cannot
+# be deleted. A changed tracked file without an entry belongs to the default list; while another
+# list is active, a newly changed file is written down under the active one. Untracked files stay
+# under "Unversioned Files" until moved; conflicted files always show as conflicts. Entries for
+# files no longer changed (committed, rolled back) are dropped; a rename carries its entry over.
+CL_DEFAULT = "default"
+CL_NAME_MAX = 60
+CL_DESC_MAX = 1000
+CL_LISTS_MAX = 50
+CL_REPOS_MAX = 200
+CL_FILES_MAX = 20000
+CL_UNVERSIONED = "unversioned"  # move target for untracked files: back under Unversioned Files
+_cl_lock = threading.Lock()
+_cl_data = None  # {"v": 1, "repos": {normcase(top): {...}}}, loaded once
+
+
+def _cl_path():
+    return os.path.join(os.path.dirname(S.CONFIG_PATH) or ".", "changelists.json")
+
+
+def _cl_fresh():
+    return {"lists": [{"id": CL_DEFAULT, "name": "Changes", "desc": ""}], "active": CL_DEFAULT, "files": {}}
+
+
+def _cl_valid(r):
+    """A repository entry as read from disk, repaired; None if beyond repair."""
+    if not isinstance(r, dict) or not isinstance(r.get("lists"), list):
+        return None
+    lists, seen = [], set()
+    for x in r["lists"][:CL_LISTS_MAX]:
+        if not (isinstance(x, dict) and isinstance(x.get("id"), str) and isinstance(x.get("name"), str)):
+            continue
+        if x["id"] in seen or (x["id"] != CL_DEFAULT and not re.fullmatch(r"cl[0-9a-f]{8}", x["id"])):
+            continue
+        seen.add(x["id"])
+        lists.append({"id": x["id"], "name": x["name"][:CL_NAME_MAX] or "?",
+                      "desc": x.get("desc")[:CL_DESC_MAX] if isinstance(x.get("desc"), str) else ""})
+    if CL_DEFAULT not in seen:
+        lists.insert(0, _cl_fresh()["lists"][0])
+    files = r.get("files") if isinstance(r.get("files"), dict) else {}
+    files = {p: v for p, v in list(files.items())[:CL_FILES_MAX] if isinstance(p, str) and v in seen | {CL_DEFAULT}}
+    active = r.get("active") if r.get("active") in seen else CL_DEFAULT
+    return {"lists": lists, "active": active, "files": files, "t": r.get("t") if isinstance(r.get("t"), (int, float)) else 0}
+
+
+def _cl_load():
+    global _cl_data
+    if _cl_data is None:
+        import json
+        try:
+            with open(_cl_path(), "r", encoding="utf-8") as f:
+                raw = json.load(f)
+        except (OSError, ValueError):
+            raw = None  # missing or damaged: start from the default state (the next save replaces it)
+        repos = raw.get("repos") if isinstance(raw, dict) and isinstance(raw.get("repos"), dict) else {}
+        _cl_data = {"v": 1, "repos": {k: v for k, v in ((k, _cl_valid(v)) for k, v in repos.items()) if v}}
+    return _cl_data
+
+
+def _cl_save():
+    import json
+    repos = _cl_data["repos"]
+    if len(repos) > CL_REPOS_MAX:  # the least recently changed repositories go first
+        for k in sorted(repos, key=lambda k: repos[k].get("t", 0))[:len(repos) - CL_REPOS_MAX]:
+            del repos[k]
+    path = _cl_path()
+    folder = os.path.dirname(path) or "."
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".reado-cl-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(_cl_data, f, ensure_ascii=False, separators=(",", ":"))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _cl_reset_cache():  # tests: forget what was loaded (another CONFIG_PATH, a damaged file)
+    global _cl_data
+    with _cl_lock:
+        _cl_data = None
+
+
+def _cl_view(r):
+    return {"lists": [dict(x) for x in r["lists"]], "active": r["active"], "files": dict(r["files"])}
+
+
+def _cl_sync(r, st):
+    """Bring a repository's entries in line with its status; True if anything changed."""
+    files = st.get("files") or []
+    by = {f["path"]: f for f in files}
+    m, changed = r["files"], False
+    for f in files:  # a rename carries the old path's entry over
+        o = f.get("orig")
+        if o and o in m and f["path"] not in m:
+            m[f["path"]] = m.pop(o)
+            changed = True
+    if not st.get("truncated"):  # entries of files that are no longer changed
+        for p in [p for p in m if p not in by]:  # a conflict keeps its entry for after the merge
+            del m[p]
+            changed = True
+    if r["active"] != CL_DEFAULT and len(m) < CL_FILES_MAX:  # new changes go to the active list
+        for f in files:
+            if f["path"] not in m and f["kind"] not in ("untracked", "conflicted"):
+                m[f["path"]] = r["active"]
+                changed = True
+    return changed
+
+
+def changelists(top, st):
+    """The repository's changelists for a status result (synced; saved only if something changed)."""
+    key = os.path.normcase(top)
+    with _cl_lock:
+        data = _cl_load()
+        r = data["repos"].get(key)
+        if not r:
+            return _cl_view(_cl_fresh())
+        if _cl_sync(r, st):
+            r["t"] = time.time()
+            try:
+                _cl_save()
+            except OSError:
+                pass  # kept in memory; the next change tries again
+        return _cl_view(r)
+
+
+def _cl_text(v, what, limit, multiline=False):
+    if not isinstance(v, str):
+        raise GitError("bad_arg", what)
+    v = v.strip() if not multiline else v.strip().replace("\r\n", "\n")
+    bad = r"[\x00-\x08\x0b-\x1f\x7f]" if multiline else r"[\x00-\x1f\x7f]"
+    if re.search(bad, v) or len(v) > limit or (not multiline and not v):
+        raise GitError("bad_arg", what)
+    return v
+
+
+def changelist_op(top, data):
+    """New / edit / delete / set active / move files. Returns the changelists after the change."""
+    op = data.get("op")
+    st = status(top)
+    key = os.path.normcase(top)
+    with _cl_lock:
+        repos = _cl_load()["repos"]
+        r = repos.get(key) or _cl_fresh()
+        _cl_sync(r, st)
+        ids = {x["id"]: x for x in r["lists"]}
+        lid = data.get("id")
+        if op in ("edit", "delete", "active") and lid not in ids:
+            raise GitError("bad_arg", "id")
+
+        def name_ok(name, own=None):
+            name = _cl_text(name, "name", CL_NAME_MAX)
+            if any(x["name"].casefold() == name.casefold() and x["id"] != own for x in r["lists"]):
+                raise GitError("name_taken", name)
+            return name
+
+        if op == "new":
+            if len(r["lists"]) >= CL_LISTS_MAX:
+                raise GitError("too_many", str(CL_LISTS_MAX))
+            x = {"id": "cl" + secrets.token_hex(4), "name": name_ok(data.get("name")),
+                 "desc": _cl_text(data.get("desc") or "", "desc", CL_DESC_MAX, True)}
+            r["lists"].append(x)
+            if data.get("active"):
+                r["active"] = x["id"]
+            lid = x["id"]
+        elif op == "edit":
+            ids[lid]["name"] = name_ok(data.get("name"), lid)
+            ids[lid]["desc"] = _cl_text(data.get("desc") or "", "desc", CL_DESC_MAX, True)
+        elif op == "delete":
+            if lid == CL_DEFAULT:
+                raise GitError("bad_arg", "the default changelist cannot be deleted")
+            r["lists"] = [x for x in r["lists"] if x["id"] != lid]
+            for p, v in list(r["files"].items()):  # its files go to the default list
+                if v == lid:
+                    r["files"][p] = CL_DEFAULT
+            if r["active"] == lid:
+                r["active"] = CL_DEFAULT
+        elif op == "active":
+            if lid != CL_DEFAULT and r["active"] == CL_DEFAULT:  # changes so far stay in the default list
+                for f in st.get("files") or []:
+                    if f["kind"] not in ("untracked", "conflicted"):
+                        r["files"].setdefault(f["path"], CL_DEFAULT)
+            r["active"] = lid
+        if op in ("new", "move") and data.get("files") is not None:
+            paths = data.get("files")
+            if not isinstance(paths, list) or len(paths) > CL_FILES_MAX:
+                raise GitError("bad_arg", "files")
+            to = data.get("to", lid)
+            if to not in ids and to != CL_UNVERSIONED and not (op == "new" and to == lid):
+                raise GitError("bad_arg", "to")
+            by = {f["path"]: f for f in st.get("files") or []}
+            for p in paths:
+                p = _check_rel(p)
+                f = by.get(p)
+                if not f or f["kind"] == "conflicted":
+                    continue  # no longer changed, or a conflict: nothing to file
+                if to == CL_UNVERSIONED:
+                    if f["kind"] == "untracked":
+                        r["files"].pop(p, None)
+                else:
+                    r["files"][p] = to
+        elif op not in ("new", "edit", "delete", "active"):
+            raise GitError("bad_arg", "op")
+        if len(r["files"]) > CL_FILES_MAX:
+            raise GitError("too_many", str(CL_FILES_MAX))
+        r["t"] = time.time()
+        repos[key] = r
+        try:
+            _cl_save()
+        except OSError as e:
+            raise GitError("save_failed", str(e)[:200])
+        return dict(_cl_view(r), ok=True, id=lid)
+
+
+def api_changelist(data):
+    try:
+        exe, _, reason = git_exe()
+        if reason:
+            return {"ok": False, "error": reason}
+        return changelist_op(repo_of(str(data.get("repo") or "")), data)
+    except GitError as e:
+        return _api_error(e)
+
+
 # ----- routing -----
 
 def handle_get(name, q):
@@ -1811,7 +2047,8 @@ def handle_get(name, q):
             return 200, blame(_first(q, "path"), _first(q, "w") == "1")
         top = repo_of(_first(q, "repo"))
         if name == "status":
-            return 200, status(top, _first(q, "fresh") == "1")
+            d = status(top, _first(q, "fresh") == "1")
+            return 200, dict(d, changelists=changelists(top, d))
         if name == "fp":
             return 200, {"fp": fingerprint(top), "state": repo_state(top)}
         if name == "refs":
@@ -2008,6 +2245,7 @@ def register(server_module):
     S.write_api("/api/git/pull")(api_pull)
     S.write_api("/api/git/fetch")(api_fetch)
     S.write_api("/api/git/checkout")(api_checkout)
+    S.write_api("/api/git/changelist", max_body=2_000_000)(api_changelist)
     S.write_api("/api/git/agento-request", max_body=1_000_000)(api_agento_request)
     S.write_api("/api/git/terminal")(api_terminal)
     S.write_api("/api/git/diffwin", max_body=4_000_000)(api_diffwin)

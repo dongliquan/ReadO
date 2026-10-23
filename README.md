@@ -369,3 +369,7 @@ Run these on a real desktop after a new build (`dist-next\reado.exe`); the autom
    maximize / close buttons; close with an unsaved tab asks first.
 4. **Delete to the Recycle Bin** — delete a file from the tree, then restore it from the Recycle Bin.
 5. **Paste from the Edit menu** — copy text elsewhere, Edit → Paste into the editor.
+6. **Changelists (Git → Local Changes)** — in a repository with a few changed files: right-click → New Changelist…;
+   Ctrl+click two files and Move to Changelist…; drag a file onto another list with the real mouse (the desktop
+   WebView); Set Active, change a file, ⟳ — it lands in the active list; restart ReadO and switch branch — the lists
+   stay; Commit… on a list copies an AgentO instruction with only its files and its name as the message.

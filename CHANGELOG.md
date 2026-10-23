@@ -169,6 +169,14 @@ Changes since 0.1.0, not yet given a version number.
   endings** (on by default; off draws CR as ␍) and name differing line endings in the header. When such a file blocks
   a pull or checkout, the dialog says so and how to clear it — ReadO changes neither the file nor `core.autocrlf` /
   `.gitattributes`.
+- **Changelists in Local Changes** (as in IntelliJ): the changes are grouped by changelist — the default **Changes**
+  plus lists you make (right-click → **New Changelist…**, name + description; **Edit Changelist…**, **Delete
+  Changelist** (its files go back to Changes; Changes itself stays), **Set Active Changelist** — new changes go to the
+  active list). Move files with **Move to Changelist…** or by dragging them onto a list; Ctrl / Shift + click selects
+  several. Untracked files can be filed in a list too. A list's checkbox ticks all of it; **Commit… / Rollback…
+  (AgentO)** on a list hand just its files to AgentO, the list's name and description as the message draft. With one
+  list the window looks as before. The lists live in `%APPDATA%\ReadO\changelists.json` per repository; git, the index
+  and the files are never touched, and committed or rolled-back files drop out by themselves.
 - The breadcrumb shows the repository folder as a chip; the settings gear moved to the bottom of the tool strip.
 - Fixed: the Git icon on the tool strip did nothing when the open folder holds repositories but is not one itself;
   it now opens the Git tool window like the Git menu.

@@ -816,6 +816,129 @@ def eol_tests(tmp):
         srv.shutdown()
 
 
+def changelist_tests(tmp):
+    """Changelists: ReadO's own metadata in %APPDATA%\\ReadO (here tmp\\cfg); git is never touched."""
+    import gitview
+    base = os.path.join(tmp, "clfx")
+    a, other = os.path.join(base, "a"), os.path.join(base, "other")
+    os.makedirs(a); os.makedirs(other)
+    for d in (a, other):
+        _g(d, "init", "-q"); _g(d, "config", "core.autocrlf", "false")
+        for n in ("f.txt", "g.txt", "h.txt", "old.txt"):
+            _commit(d, n, n + "\n", "add " + n)
+        _g(d, "branch", "-q", "side")
+    cfg = os.path.join(tmp, "clcfg")
+    server.CONFIG_PATH = os.path.join(cfg, "config.json")
+    gitview._cl_reset_cache()
+    store = os.path.join(cfg, "changelists.json")
+    srv, c = start(base)
+    A = a.replace("\\", "/")
+    write = lambda n, t="edit\n": open(os.path.join(a, n), "w", encoding="utf-8", newline="\n").write(t)
+    op = lambda **b: c.post("/api/git/changelist", dict({"repo": A}, **b))
+
+    def lists():
+        code, d, _ = c.git("status", repo=A, fresh=1)
+        return d.get("changelists", {})
+    try:
+        print("== changelists: default state")
+        write("f.txt"); write("g.txt"); write("new.txt", "u\n")
+        cl = lists()
+        check([x["id"] for x in cl.get("lists", [])] == ["default"] and cl["lists"][0]["name"] == "Changes"
+              and cl.get("active") == "default" and cl.get("files") == {}, "one default list 'Changes', active, nothing filed")
+        check(not os.path.exists(store), "nothing written while only the default list exists")
+
+        print("== changelists: new / validation")
+        code, d = op(op="new", name="Feature A", desc="first line\nmore detail")
+        fa = d.get("id")
+        check(code == 200 and d.get("ok") and [x["name"] for x in d["lists"]] == ["Changes", "Feature A"]
+              and d["lists"][1]["desc"] == "first line\nmore detail" and d.get("active") == "default", "new changelist with a description")
+        code, d = op(op="new", name="feature a")
+        check(not d.get("ok") and d.get("error") == "name_taken", "duplicate name refused (any case)")
+        for bad in ("", "   ", "a\tb", "x\x00", "n" * 61, 5):
+            code, d = op(op="new", name=bad)
+            check(code == 400 and d.get("error") == "bad_arg", f"bad name {bad!r:.20} refused")
+        code, d = op(op="new", name="ok", desc="bad\x01")
+        check(code == 400, "control character in the description refused")
+        code, d = op(op="nope")
+        check(code == 400 and d.get("error") == "bad_arg", "unknown op refused")
+        code, d = c.post("/api/git/changelist", {"repo": A, "op": "new", "name": "x"}, token=False)
+        check(code == 403, "without the page token refused")
+        code, d = op(op="new", name="x", repo=os.environ.get("SystemRoot", "C:/Windows"))
+        check(code == 400 and d.get("error") == "not_repo", "outside the working folder refused")
+
+        print("== changelists: move, untracked, unversioned")
+        code, d = op(op="move", to=fa, files=["g.txt", "new.txt", "../x.txt"] )
+        check(code == 400, "a path outside the repository refused")
+        code, d = op(op="move", to=fa, files=["g.txt", "new.txt", "not-changed.txt"])
+        check(d.get("ok") and d["files"] == {"g.txt": fa, "new.txt": fa}, f"tracked + untracked file moved, unchanged file ignored {d.get('files')}")
+        code, d = op(op="move", to="nope", files=["g.txt"])
+        check(code == 400, "move to an unknown list refused")
+        code, d = op(op="move", to="unversioned", files=["new.txt", "g.txt"])
+        check(d.get("ok") and d["files"] == {"g.txt": fa}, "back to Unversioned Files: untracked files only")
+        code, d = op(op="move", to=fa, files=["new.txt"])
+        cl = lists()
+        check(cl.get("files") == {"g.txt": fa, "new.txt": fa}, "status carries the changelists")
+
+        print("== changelists: active list takes new changes")
+        code, d = op(op="active", id=fa)
+        check(d.get("ok") and d["active"] == fa and d["files"].get("f.txt") == "default", "set active: earlier changes stay in Changes")
+        write("h.txt"); write("untracked2.txt")
+        cl = lists()
+        check(cl["files"].get("h.txt") == fa and "untracked2.txt" not in cl["files"], "a newly changed file goes to the active list; untracked does not")
+
+        print("== changelists: edit / delete")
+        code, d = op(op="edit", id=fa, name="Feature B", desc="")
+        check(d.get("ok") and d["lists"][1]["name"] == "Feature B" and d["lists"][1]["desc"] == "", "edit name / description")
+        code, d = op(op="edit", id=fa, name="changes")
+        check(d.get("error") == "name_taken", "edit to an existing name refused")
+        code, d = op(op="delete", id="default")
+        check(code == 400 and len(lists().get("lists", [])) == 2, "the default list cannot be deleted")
+        code, d = op(op="new", name="Temp", files=["f.txt"])
+        tid = d.get("id")
+        check(d.get("ok") and d["files"].get("f.txt") == tid, "new changelist with files moved into it")
+        code, d = op(op="delete", id=tid)
+        check(d.get("ok") and d["files"].get("f.txt") == "default" and tid not in [x["id"] for x in d["lists"]], "delete: its files go to Changes")
+
+        print("== changelists: commit / rollback / rename / checkout")
+        _g(a, "add", "h.txt"); _g(a, "commit", "-q", "-m", "h")
+        _g(a, "checkout", "-q", "--", "g.txt")
+        cl = lists()
+        check("h.txt" not in cl["files"] and "g.txt" not in cl["files"], "committed / rolled-back files dropped from the metadata")
+        code, d = op(op="move", to=fa, files=["old.txt"])
+        _g(a, "mv", "old.txt", "renamed.txt")
+        cl = lists()
+        check(cl["files"].get("renamed.txt") == fa and "old.txt" not in cl["files"], "a rename keeps its changelist")
+        code, d = c.post("/api/git/checkout", {"repo": A, "ref": "refs/heads/side"})
+        cl = lists()
+        check(d.get("ok") and cl["files"].get("new.txt") == fa and [x["name"] for x in cl["lists"]] == ["Changes", "Feature B"],
+              f"branch checkout: changelists kept ({d.get('error')})")
+        _g(a, "checkout", "-q", "main")
+
+        print("== changelists: storage")
+        with open(store, encoding="utf-8") as f:
+            data = json.load(f)
+        keys = list(data.get("repos", {}).keys())
+        check(len(keys) == 1 and keys[0].endswith(os.path.normcase("clfx/a")), f"stored under the repository path in the config folder {keys}")
+        check(not any(n.startswith(".reado") or "changelist" in n for n in os.listdir(a)), "nothing created inside the repository")
+        code, d, _ = c.git("status", repo=other.replace("\\", "/"), fresh=1)
+        check([x["id"] for x in d["changelists"]["lists"]] == ["default"], "another repository: its own (default) changelists")
+        gitview._cl_reset_cache()
+        check(lists().get("files", {}).get("new.txt") == fa, "kept across a restart (read back from disk)")
+        with open(store, "w", encoding="utf-8") as f:
+            f.write("{ damaged")
+        gitview._cl_reset_cache()
+        cl = lists()
+        check([x["id"] for x in cl.get("lists", [])] == ["default"], "damaged file: ignored, default state")
+        code, d = op(op="new", name="Again")
+        with open(store, encoding="utf-8") as f:
+            check(d.get("ok") and json.load(f)["repos"], "damaged file replaced by the next change")
+        before = snapshot(a)
+        op(op="move", to="default", files=["new.txt"]); op(op="active", id="default"); op(op="edit", id="default", name="Changes", desc="d")
+        check(snapshot(a) == before, "changelist operations leave HEAD / index / refs / config alone")
+    finally:
+        srv.shutdown()
+
+
 def perf(c, top, label, rounds=1):
     R = top.replace("\\", "/")
     rows = []
@@ -871,6 +994,7 @@ def main():
         pull_tests(tmp)
         checkout_tests(tmp)
         eol_tests(tmp)
+        changelist_tests(tmp)
         for repo in extra:
             before = snapshot(repo)
             srv, c = start(os.path.dirname(os.path.realpath(repo)))

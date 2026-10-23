@@ -280,6 +280,129 @@ def eol_ui_tests(pg, ev, shot, toast, base):
     ev("GitUI.toggleWindow(false)")
 
 
+def changelist_ui_tests(pg, ev, shot, toast, base):
+    """Changelists in Local Changes: groups, New / Edit / Delete / Set Active, Move (menu, several files, drag and drop),
+    Commit / Rollback of one list for AgentO; git itself untouched."""
+    R = os.path.join(base, "clrepo")
+    os.makedirs(R)
+    _g(R, "init", "-q"); _g(R, "config", "core.autocrlf", "false")
+    for n in ("a.txt", "b.txt", "c.txt", "d.txt"):
+        _put(R, n, n + "\n")
+    _g(R, "add", "-A"); _g(R, "commit", "-q", "-m", "first")
+    _put(R, "a.txt", "A\n"); _put(R, "b.txt", "B\n"); _put(R, "u.txt", "untracked\n")
+    root = os.path.realpath(R).replace("\\", "/")
+    head, P = _g(R, "rev-parse", "HEAD"), "#gitWin [data-page=changes] "
+    groups = lambda: ev(f"[...document.querySelectorAll('{P}.gt-row.group')].map(r => r.querySelector('.nm').textContent + (r.classList.contains('active') ? '*' : '') + ':' + r.querySelector('.cnt').textContent)")
+    files = lambda: ev(f"[...document.querySelectorAll('{P}.gt-row:not(.group)[data-id*=\"|\"]')].filter(r => !r.dataset.id.includes('|d:')).map(r => r.dataset.id)")
+    gid = lambda name: ev(f"(() => {{ const r = [...document.querySelectorAll('{P}.gt-row.group')].find(r => r.querySelector('.nm').textContent === {name!r}); return r && r.dataset.id; }})()")
+    menu = lambda: ev("[...document.querySelectorAll('#ctxMenu .ctx-item')].map(i => i.dataset.label + (i.classList.contains('disabled') ? '-' : ''))")
+    item = lambda label: pg.click(f"#ctxMenu .ctx-item[data-label={label!r}]")
+    row = lambda i: f"{P}.gt-row[data-id={i!r}]"
+    clip = lambda: ev("document.querySelector('.gx-bg textarea') ? document.querySelector('.gx-bg textarea').value : ''")
+
+    print("== changelists: one list looks as before")
+    ev(f"GitUI.toggleWindow(true); GitUI.selectRepo({root!r}).then(() => GitUI.setTab('changes'))")
+    pg.wait_for_function(f"document.querySelector('{P}.gt-row[data-id=\"changes|a.txt\"]')", timeout=20000)
+    check(groups() == ["Changes:2 files", "Unversioned Files:1 file"] and not ev(f"!!document.querySelector('{P}.tag.act')"),
+          f"Changes + Unversioned Files, no 'active' tag ({groups()})")
+    pg.click(row("g:changes"), button="right")
+    m = menu()
+    check(m[:3] == ["Commit… (AgentO)", "Rollback… (AgentO)", "Show Diff"] and "Move to Changelist…" in m and "New Changelist…" in m
+          and "Edit Changelist…" in m and "Delete Changelist-" in m and "Set Active Changelist-" in m and m[-1] == "Refresh",
+          f"group menu: Commit / Rollback / Show Diff / Move / New / Edit; Delete + Set Active greyed ({m})")
+
+    print("== changelists: New Changelist")
+    item("New Changelist…")
+    pg.wait_for_selector(".gcl-dlg", timeout=5000)
+    pg.fill(".gcl-dlg .nm", "Feature")
+    pg.fill(".gcl-dlg .ds", "detail line")
+    shot("t10-new-changelist")
+    pg.click(".gcl-dlg [data-a=go]")
+    pg.wait_for_function("!document.querySelector('.gcl-dlg')", timeout=5000)
+    F = gid("Feature")
+    check(F and F.startswith("g:cl:") and groups() == ["Changes*:2 files", "Feature:0 files", "Unversioned Files:1 file"],
+          f"new empty list shown; Changes marked active ({groups()})")
+    pg.click(row("g:changes"), button="right")
+    item("New Changelist…")
+    pg.fill(".gcl-dlg .nm", "feature")
+    pg.click(".gcl-dlg [data-a=go]")
+    pg.wait_for_function("document.querySelector('.gcl-dlg .err').textContent.includes('already exists')", timeout=5000)
+    check(True, "duplicate name: the dialog says so and stays open")
+    pg.keyboard.press("Escape")
+
+    print("== changelists: move several files (menu), drag and drop")
+    pg.click(row("changes|a.txt"))
+    pg.click(row("changes|b.txt"), modifiers=["Control"])
+    check(ev(f"document.querySelectorAll('{P}.gt-row.sel').length") == 2, "Ctrl+click: two files selected")
+    pg.click(row("changes|b.txt"), button="right")
+    item("Move to Changelist…")
+    pg.wait_for_selector("#gitPick .it", timeout=5000)
+    labels = ev("[...document.querySelectorAll('#gitPick .it .nm')].map(x => x.textContent)")
+    check(labels == ["Changes", "Feature", "New Changelist…"], f"move picker: the lists + New Changelist… ({labels})")
+    pg.click("#gitPick .it:has(.nm:text-is('Feature'))")
+    cid = F[2:]
+    pg.wait_for_function(f"document.querySelector('{P}.gt-row[data-id=\"{cid}|a.txt\"]') && document.querySelector('{P}.gt-row[data-id=\"{cid}|b.txt\"]')", timeout=5000)
+    check(groups() == ["Changes*:0 files", "Feature:2 files", "Unversioned Files:1 file"], f"both files moved ({groups()})")
+    pg.drag_and_drop(row("unversioned|u.txt"), row(F))
+    pg.wait_for_function(f"document.querySelector('{P}.gt-row[data-id=\"{cid}|u.txt\"]')", timeout=5000)
+    check(groups() == ["Changes*:0 files", "Feature:3 files"], f"untracked file dragged into Feature ({groups()})")
+
+    print("== changelists: Set Active, new changes")
+    pg.click(row(F), button="right")
+    item("Set Active Changelist")
+    pg.wait_for_function(f"document.querySelector('{P}.gt-row[data-id=\"{F}\"]').classList.contains('active')", timeout=5000)
+    _put(R, "c.txt", "C\n")
+    pg.click(P + "[data-a=refresh]")
+    pg.wait_for_function(f"document.querySelector('{P}.gt-row[data-id=\"{cid}|c.txt\"]')", timeout=10000)
+    check(groups()[1] == "Feature*:4 files", f"a newly changed file goes to the active list ({groups()})")
+    shot("t11-changelists")
+
+    print("== changelists: Commit / Rollback of one list (AgentO)")
+    pg.click(row(F), button="right")
+    item("Commit… (AgentO)")
+    pg.wait_for_selector(".gx-bg textarea", timeout=5000)
+    t = clip()
+    check(all("- " + n in t for n in ("a.txt", "b.txt", "c.txt", "u.txt")) and "커밋 메시지(초안): Feature" in t and "본문(초안):\ndetail line" in t,
+          f"Commit: the list's files, its name + description as the message draft ({t[-120:]!r})")
+    pg.click(".gx-bg [data-a=cancel]")
+    pg.click(row(F), button="right")
+    item("Rollback… (AgentO)")
+    pg.wait_for_selector(".gx-bg textarea", timeout=5000)
+    t = clip()
+    check("되돌려" in t and "- a.txt" in t and "확인을 받아" in t, "Rollback: the list's files, the usual confirm-first instruction")
+    pg.click(".gx-bg [data-a=cancel]")
+    pg.click(f"{row(F)} input[type=checkbox]")
+    check(ev(f"[...document.querySelectorAll('{P}.gt-row[data-id^=\"{cid}|\"] input')].every(x => !x.checked)"), "list checkbox unticks the whole list")
+    pg.click(f"{row(F)} input[type=checkbox]")
+
+    print("== changelists: kept across a repository switch, Edit, Delete")
+    ev("GitUI.selectRepo(GitUI.G.repos.find(r => !r.root.endsWith('/clrepo')).root).then(() => GitUI.setTab('changes'))")
+    time.sleep(0.8)
+    ev(f"GitUI.selectRepo({root!r}).then(() => GitUI.setTab('changes'))")
+    pg.wait_for_function(f"document.querySelector('{P}.gt-row[data-id=\"{F}\"]')", timeout=10000)
+    check(groups()[1] == "Feature*:4 files", "back in the repository: changelists and the active one kept")
+    pg.click(row(F), button="right")
+    item("Edit Changelist…")
+    pg.wait_for_selector(".gcl-dlg", timeout=5000)
+    check(ev("document.querySelector('.gcl-dlg .nm').value") == "Feature" and ev("document.querySelector('.gcl-dlg .ds').value") == "detail line", "Edit: current name + description")
+    pg.fill(".gcl-dlg .nm", "Feature 2")
+    pg.keyboard.press("Enter")
+    pg.wait_for_function(f"document.querySelector('{P}.gt-row[data-id=\"{F}\"] .nm').textContent === 'Feature 2'", timeout=5000)
+    pg.click(row(F), button="right")
+    check("Delete Changelist" in menu(), "Delete enabled for a user list")
+    ev("document.getElementById('dlgTitle').textContent = ''")
+    item("Delete Changelist")
+    pg.wait_for_function("document.getElementById('dlgTitle').textContent === 'Delete Changelist'", timeout=5000)
+    check("4 files move to \"Changes\"" in ev("document.getElementById('dlgMsg').textContent"), "Delete asks first, says where the files go")
+    pg.click("#dlgBtns button.primary")
+    pg.wait_for_function(f"!document.querySelector('{P}.gt-row[data-id=\"{F}\"]')", timeout=5000)
+    check(groups() == ["Changes:4 files"] and sorted(files()) == ["changes|a.txt", "changes|b.txt", "changes|c.txt", "changes|u.txt"],
+          f"deleted: its files (also the untracked one) back in Changes, one list again ({groups()})")
+    check(_g(R, "rev-parse", "HEAD") == head and _g(R, "diff", "--cached", "--name-only") == "" and not os.path.exists(os.path.join(R, ".reado")),
+          "git untouched: HEAD, index unchanged; nothing written in the repository")
+    ev("GitUI.toggleWindow(false)")
+
+
 def find_dialog_tests(pg, ev, shot, base):
     """Find File (Ctrl+P) and Find in Files (Ctrl+Shift+F): one frame, switching keeps the text, prefixes, options saved."""
     QO, FIF = "document.getElementById('qoBg').classList.contains('show')", "document.getElementById('fifBg').classList.contains('show')"
@@ -652,6 +775,7 @@ def toolbar_tests(b, url, tmp, errors, shots):
     check(not ev("document.getElementById('gtbPush').disabled"), "branch without upstream: Push request allowed (AgentO sets it up)")
     checkout_ui_tests(pg, ev, shot, toast, A, UP)
     eol_ui_tests(pg, ev, shot, toast, base)
+    changelist_ui_tests(pg, ev, shot, toast, base)
     ev("openFile('my-repo/f.txt')")
     _g(A, "checkout", "-q", "topic") if _g(A, "rev-parse", "--abbrev-ref", "HEAD") != "topic" else None
 
@@ -778,10 +902,10 @@ def main():
         check(pg.evaluate(PANE + ".spec.path") == "staged.txt", "double-click: diff window opens (the pane shows the file too)")
         pg.evaluate("GitUI.closeDiffWin(GitUI.DM)")
         pg.click("#gitWin [data-page=changes] .gt-row:has-text('app.py')", button="right")
-        check("Show Diff in Window" in pg.evaluate("[...document.querySelectorAll('#ctxMenu .ctx-item')].map(e => e.dataset.label)"), "right-click: Show Diff in Window")
-        pg.click("#ctxMenu .ctx-item[data-label='Show Diff in Window']")
+        check("Show Diff" in pg.evaluate("[...document.querySelectorAll('#ctxMenu .ctx-item')].map(e => e.dataset.label)"), "right-click: Show Diff")
+        pg.click("#ctxMenu .ctx-item[data-label='Show Diff']")
         pg.wait_for_function("GitUI.DW.wins.length === 1", timeout=10000)
-        check(True, "Show Diff in Window opens the window")
+        check(True, "Show Diff opens the diff window")
         pg.evaluate("GitUI.closeDiffWin(GitUI.DM)")
 
         print("== diff windows (floating, non-modal)")

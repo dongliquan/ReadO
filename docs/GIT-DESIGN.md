@@ -766,6 +766,24 @@ Ctrl+K·Ctrl+Shift+K는 실제 커밋이 아니라 **지시문 미리보기 대�
 | 읽기 명령 | `diff`를 READ_ONLY에 넣었다. `--output`·`--ext-diff`·`--textconv`는 `_check_allowed`에서 거부한다 |
 | 에디터 저장 | 서버는 받은 텍스트를 그대로 쓴다. Monaco 모델은 파일 전체가 CRLF이거나 LF이면 그 형식을 유지해 저장한다(테스트로 확인). **줄바꿈이 섞인 파일은 열 때 많은 쪽 형식으로 통일되어**, 저장하면 다른 줄의 줄바꿈도 바뀐다(Monaco 모델의 한계라 에디터 코드는 고치지 않았다) |
 
+<a id="sec-14-6"></a>
+
+## 14.6 Changelist (2026-10-23)
+
+git에는 changelist가 없다. IntelliJ처럼 Local Changes를 묶어 보는 ReadO 자체 메타데이터다. git·인덱스·작업 트리·설정은 건드리지 않는다.
+
+| 항목 | 내용 |
+|---|---|
+| 저장 | `%APPDATA%\ReadO\changelists.json`(config.json 옆). 저장소 경로(`normcase`)를 키로 `{lists:[{id, name, desc}], active, files:{경로: list id}}`. 저장소 안에는 아무 파일도 만들지 않는다. 임시 파일 + fsync + `os.replace`로 원자적으로 쓴다. 파일이 깨졌거나 형식이 틀리면 무시하고 기본 상태에서 시작하며, 다음 변경 때 새로 쓴다. 저장소는 최근 변경 순으로 200개까지, 저장소당 목록 50개·파일 2만 개까지 |
+| 기본 목록 | `Changes`(id `default`)는 항상 있고 삭제할 수 없다(이름·설명은 바꿀 수 있다). 목록이 이것 하나뿐이고 따로 배정한 파일이 없으면 아무것도 저장하지 않는다 |
+| 배정 규칙 | 항목이 없는 tracked 변경 파일은 기본 목록이다. 다른 목록이 활성이면 새로 생긴 변경 파일을 활성 목록으로 적어 둔다(활성으로 바꾸는 순간의 기존 변경은 기본 목록으로 고정). untracked 파일은 옮기기 전까지 Unversioned Files에 있고, 충돌 파일은 항상 Merge Conflicts에 보인다(항목은 머지 뒤를 위해 남긴다) |
+| 정리 | status 결과마다 맞춘다: 더 이상 변경이 아닌 파일(커밋·되돌리기)의 항목은 지우고, rename(`orig`)은 새 경로로 옮긴다. status가 잘렸으면(`truncated`) 지우지 않는다. 바뀐 것이 있을 때만 쓴다. 저장소 전환·브랜치 checkout·재시작 뒤에도 유지된다 |
+| API | `GET /api/git/status` 응답에 `changelists`가 붙는다. `POST /api/git/changelist {repo, op}`(`write_api`: CSRF, Host/Origin, `repo_of`). op: `new {name, desc, active?, files?}`, `edit {id, name, desc}`, `delete {id}`, `active {id}`, `move {to, files[]}`(`to`가 `unversioned`이면 untracked 파일을 Unversioned Files로 되돌린다). 이름은 1~60자, 제어 문자 금지, 대소문자 무시 중복 거부(`name_taken`). 설명은 1000자까지(줄바꿈·탭만 허용). 경로는 `_check_rel`로 검사하고, 변경이 아닌 파일은 건너뛴다 |
+| 화면 | Local Changes 트리가 목록별 그룹(파일 수, 접기·펼치기)이다. 목록이 둘 이상이면 활성 목록에 `active` 태그가 붙고, 설명은 그룹 툴팁이다. 목록이 하나면 이전 화면과 같다. 폴더 트리, 체크박스(그룹 체크 = 목록 전체), staged 배지, 줄바꿈 숨김 토글은 그대로다. 목록 사이를 옮겨도 체크 상태는 유지된다 |
+| 선택·이동 | Ctrl·Shift+클릭으로 여러 파일을 고른다. 우클릭 **Move to Changelist…**(목록 + Unversioned Files(untracked일 때) + New Changelist…), 또는 파일을 목록 그룹 위로 끌어다 놓는다(HTML5 drag and drop) |
+| 우클릭 메뉴 | 파일·폴더·그룹 공통: Commit… (AgentO), Rollback… (AgentO), Show Diff, (파일) Open File·Show History·Copy Path, Move to Changelist…, New Changelist…, Edit Changelist…, Delete Changelist, Set Active Changelist, Resolve Conflict… (AgentO), Refresh. 대상이 맞지 않는 항목은 회색이다 |
+| Commit·Rollback | 기존 AgentO 지시문 대화상자(`agentDialog`) 그대로, 대상은 그 목록(또는 선택) 파일만이다. 파일들이 한 사용자 목록에 있으면 목록 이름이 커밋 메시지 초안, 설명이 본문 초안이 된다. Rollback은 "diff를 보여 주고 확인을 받아 줘" 규칙 그대로다. Shelve는 이번 범위가 아니다 |
+
 <a id="sec-14-3"></a>
 
 ## 14.3 AgentO 딥링크 요청 스펙(v1, 초안 — AgentO 구현과 맞춰 확정)

@@ -59,6 +59,7 @@ if not "%OUT%"=="dist" set "SPEC_OPT=--specpath %WORK%"
 pyinstaller --noconfirm --onefile --windowed --name reado ^
     --distpath "%OUT%" --workpath "%WORK%" %SPEC_OPT% ^
     --add-data "%~dp0source.html;." ^
+    --add-data "%~dp0ui;ui" ^
     --add-data "%~dp0git.js;." ^
     --add-data "%~dp0git.css;." ^
     --add-data "%~dp0diffwin.html;." ^

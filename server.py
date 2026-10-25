@@ -4086,6 +4086,22 @@ on_open_request = None  # set by reado.py
 
 # ----- HTTP -----
 
+# source.html keeps its inline <style> and <script> in ui/*.css|js; each
+# `<!--#include ui/NAME-->` line is replaced by that file when the page is
+# served, so the browser still gets one inline style and one inline script
+# (one script: function hoisting and run order stay exactly as they were).
+_INCLUDE_RE = re.compile(r"^[ \t]*<!--#include (ui/[\w.-]+\.(?:js|css))-->\r?\n", re.M)
+
+
+def expand_includes(html):
+    root = os.path.dirname(HTML_PATH)
+
+    def sub(m):
+        with open(os.path.join(root, *m.group(1).split("/")), "r", encoding="utf-8") as f:
+            return f.read()
+    return _INCLUDE_RE.sub(sub, html)
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json"):
         if isinstance(body, (dict, list)):
@@ -4110,7 +4126,7 @@ class Handler(BaseHTTPRequestHandler):
     def _serve_html(self):
         try:
             with open(HTML_PATH, "r", encoding="utf-8") as f:
-                html = f.read()
+                html = expand_includes(f.read())
         except FileNotFoundError:
             return self._send(404, {"error": "source.html missing"})
         snippet = _TOKEN_SNIPPET.format(t=CSRF_TOKEN, h=TOKEN_HEADER)

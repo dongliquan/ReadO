@@ -7,6 +7,7 @@ Endpoints:
   POST /api/settings           -> save settings            (write API, guarded)
   GET  /api/tree?path=         -> directory listing (one level)
   GET  /api/file?path=         -> file content (text) + mtime_ns, encoding, readonly
+  GET  /api/image?path=        -> image bytes for a markdown preview (same access rules as /api/file)
   GET  /api/state              -> saved UI state
   POST /api/save               -> save an open file           (write API, guarded)
   POST /api/create             -> new empty file in base_dir   (write API, guarded)
@@ -930,6 +931,33 @@ class BinaryFile(str):
         return obj
 
 
+# Images a markdown preview may show (relative <img src>). Same access rules as
+# /api/file: inside the open folder, or an absolute path the user opened.
+IMAGE_MIME = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+    ".webp": "image/webp", ".bmp": "image/bmp", ".ico": "image/x-icon", ".avif": "image/avif",
+    ".svg": "image/svg+xml",
+}
+IMAGE_MAX_BYTES = 20_000_000
+
+
+def read_image(key: str):
+    """(bytes, content type), or (None, error)."""
+    ctype = IMAGE_MIME.get(os.path.splitext(key)[1].lower())
+    if not ctype:
+        return None, "not an image"
+    target = resolve_read_path(key)
+    if not target or not os.path.isfile(target):
+        return None, "not a file"
+    try:
+        if os.path.getsize(target) > IMAGE_MAX_BYTES:
+            return None, "image too large"
+        with open(target, "rb") as f:
+            return (f.read(), ctype), None
+    except OSError as e:
+        return None, str(e)
+
+
 # ----- search -> srv_search.py -----
 USE_RIPGREP = True
 
@@ -1603,6 +1631,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, {"error": err})
             else:
                 self._send(200, data)
+        elif u.path == "/api/image":
+            data, err = read_image(q.get("path", ""))
+            if err:
+                self._send(404, {"error": err})
+            else:
+                self._send_image(*data)
         elif u.path == "/api/search":
             try:
                 ctx = int(q.get("ctx", "2"))
@@ -1700,6 +1734,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "image/x-icon")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "public, max-age=86400")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_image(self, body, ctype):
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        # an SVG opened on its own must not run script in the app's origin
+        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
         self.end_headers()
         self.wfile.write(body)
 

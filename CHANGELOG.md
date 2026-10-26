@@ -193,6 +193,16 @@ Changes since 0.1.0, not yet given a version number.
   (tsconfig, `node_modules`, `@/` paths), so its diagnostics are off. Settings → **Show language diagnostics** turns
   them back on.
 
+### Markdown
+
+- Fenced code blocks in the preview are highlighted (` ```js `, ` ```python `, ` ```sql ` … — any language the
+  editor knows, by name, alias or file extension), in the editor's colours for the light and dark theme.
+- Relative images (`![](img/shot.png)`, `<img src="../logo.png">`) show in the preview. They are served only from the
+  open folder (or a file opened from outside it); a path that climbs out of it shows no image.
+- A relative link that climbs out of the open folder is ignored instead of opening a file at the folder root.
+- The preview's HTML clean-up is unchanged: only a small list of tags and attributes is kept, no scripts, styles,
+  frames, SVG or remote images.
+
 ### Start-up
 
 - Fixed: ReadO could hang at start without ever showing its window, using CPU in the background (seen when it was

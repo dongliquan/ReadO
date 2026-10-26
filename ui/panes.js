@@ -608,12 +608,13 @@ function showPaneView(p) {
   const preview = !!(doc && doc.isMarkdown && tab && !tab.mdSource);
   if (preview) {
     const alt = doc.model.getAlternativeVersionId();
-    if (doc.htmlAlt !== alt) {
-      doc.html = sanitizeMarkdown(marked.parse(doc.model.getValue()));
+    if (doc.htmlAlt !== alt || doc.htmlKey !== doc.key) {
+      doc.html = mdLocalImages(sanitizeMarkdown(marked.parse(doc.model.getValue())), doc.key);
       doc.htmlAlt = alt;
+      doc.htmlKey = doc.key;
     }
     const sig = doc.key + '@' + alt;
-    if (p.previewSig !== sig) { p.previewEl.innerHTML = doc.html; p.previewSig = sig; }
+    if (p.previewSig !== sig) { p.previewEl.innerHTML = doc.html; p.previewSig = sig; mdHighlight(p, doc, alt); }
   }
   p.previewEl.style.display = preview ? 'block' : 'none';
   p.editorEl.style.display = preview ? 'none' : '';
@@ -639,14 +640,71 @@ function onPreviewClick(pane, e) {
   if (!a) return;
   e.preventDefault();
   const href = a.getAttribute('href') || '';
-  if (!href || href.startsWith('#') || /^[a-z][\w+.-]*:/i.test(href) || href.startsWith('/')) return;
-  const parts = pane.currentPath.split(/[\\/]/);
+  if (!mdIsRelative(href)) return;
+  const key = mdRelKey(pane.currentPath, href);
+  if (key) openFileInPane(panes.indexOf(pane), key);
+}
+function mdIsRelative(url) {
+  return !!url && !url.startsWith('#') && !url.startsWith('/') && !/^[a-z][\w+.-]*:/i.test(url);
+}
+// File key for a path relative to a markdown file; null when it climbs out of
+// the open folder (or above the drive root for an absolute key).
+function mdRelKey(fromKey, rel) {
+  const abs = isAbsKey(fromKey);
+  const parts = fromKey.split(/[\\/]/);
   parts.pop();
-  for (const seg of decodeURIComponent(href.split(/[?#]/)[0]).split('/')) {
-    if (seg === '..') parts.pop();
-    else if (seg && seg !== '.') parts.push(seg);
+  let segs;
+  try { segs = decodeURIComponent(rel.split(/[?#]/)[0]).split('/'); } catch (_) { return null; }
+  for (const seg of segs) {
+    if (seg === '..') {
+      if (parts.length <= (abs ? 1 : 0)) return null;
+      parts.pop();
+    } else if (seg && seg !== '.') parts.push(seg);
   }
-  openFileInPane(panes.indexOf(pane), parts.join(isAbsKey(pane.currentPath) ? '\\' : '/'));
+  return parts.length ? parts.join(abs ? '\\' : '/') : null;
+}
+// Relative <img src> in a preview (already sanitized) -> /api/image, which only
+// serves files inside the open folder. The template keeps the images from loading here.
+function mdLocalImages(html, key) {
+  const box = document.createElement('template');
+  box.innerHTML = html;
+  for (const img of box.content.querySelectorAll('img[src]')) {
+    const src = img.getAttribute('src');
+    if (!mdIsRelative(src)) continue;
+    const k = mdRelKey(key, src);
+    if (k) img.setAttribute('src', '/api/image?path=' + encodeURIComponent(k));
+    else img.removeAttribute('src');
+  }
+  return box.innerHTML;
+}
+// Fenced code blocks with a known language: coloured by Monaco's tokenizer
+// (its output is escaped text in .mtkN spans, which follow the editor theme).
+function mdLanguage(name) {
+  name = name.toLowerCase();
+  for (const l of monaco.languages.getLanguages()) {
+    if (l.id === name || (l.aliases || []).some(a => a.toLowerCase() === name)
+        || (l.extensions || []).includes('.' + name)) return l.id;
+  }
+  return null;
+}
+function mdHighlight(p, doc, alt) {
+  if (typeof monaco === 'undefined') return;
+  const jobs = [];
+  for (const code of p.previewEl.querySelectorAll('pre > code[class^="language-"]:not([data-hl])')) {
+    const lang = mdLanguage(code.className.slice('language-'.length));
+    const text = code.textContent.replace(/\n$/, '');
+    if (!lang || text.length > 200000) continue;
+    jobs.push(monaco.editor.colorize(text, lang, {}).then(html => {
+      code.innerHTML = html.replace(/ |&nbsp;/g, ' ');  // <pre> keeps spaces; copied code stays plain
+      code.dataset.hl = '1';
+    }, () => {}));
+  }
+  if (!jobs.length) return;
+  const sig = p.previewSig;
+  // keep the coloured result, so switching back to the tab does not redo it
+  Promise.all(jobs).then(() => {
+    if (p.previewSig === sig && doc.htmlAlt === alt) doc.html = p.previewEl.innerHTML;
+  });
 }
 
 // force: close without asking about unsaved changes (folder switch already asked)

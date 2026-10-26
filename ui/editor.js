@@ -1,6 +1,7 @@
 // marked preserves raw HTML and does not sanitize its output. Markdown files
 // are project data, so rebuild the parsed tree from a small safe element and
-// attribute allowlist before it reaches innerHTML.
+// attribute allowlist before it reaches innerHTML. Nodes are built in the parsed
+// (inert) document, so an <img> does not start loading before it is shown.
 function sanitizeMarkdown(html) {
   const allowed = new Set([
     'A','BLOCKQUOTE','BR','CODE','DEL','EM','H1','H2','H3','H4','H5','H6',
@@ -11,10 +12,10 @@ function sanitizeMarkdown(html) {
     'FORM','INPUT','BUTTON','VIDEO','AUDIO','SOURCE']);
   const doc = new DOMParser().parseFromString(String(html), 'text/html');
   const clean = node => {
-    const out = document.createDocumentFragment();
+    const out = doc.createDocumentFragment();
     for (const child of [...node.childNodes]) {
       if (child.nodeType === Node.TEXT_NODE) {
-        out.appendChild(document.createTextNode(child.nodeValue));
+        out.appendChild(doc.createTextNode(child.nodeValue));
         continue;
       }
       if (child.nodeType !== Node.ELEMENT_NODE) continue;
@@ -22,7 +23,7 @@ function sanitizeMarkdown(html) {
       if (drop.has(tag)) continue;
       const children = clean(child);
       if (!allowed.has(tag)) { out.appendChild(children); continue; }
-      const el = document.createElement(tag.toLowerCase());
+      const el = doc.createElement(tag.toLowerCase());
       if (tag === 'A' || tag === 'IMG') {
         const raw = child.getAttribute(tag === 'A' ? 'href' : 'src') || '';
         try {
@@ -45,7 +46,7 @@ function sanitizeMarkdown(html) {
     return out;
   };
   const fragment = clean(doc.body);
-  const container = document.createElement('div');
+  const container = doc.createElement('div');
   container.appendChild(fragment);
   return container.innerHTML;
 }

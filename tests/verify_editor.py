@@ -10,6 +10,7 @@ panes, settings, instance hand-off. Needs port 8799 free, and 8766 for the
 port-fallback check. The "Open with" check writes HKCU file associations and
 removes them again (skipped when ReadO is already registered).
 """
+import base64
 import json
 import os
 import shutil
@@ -217,6 +218,13 @@ def setup():
     w(os.path.join(p, ".gitignore"), "build/\n")
     w(os.path.join(p, ".git", "config"), "[core]\n")
     w(os.path.join(p, "doc", "guide.md"), "# Guide\n")
+    w(os.path.join(p, "doc", "pics.md"),
+      "# Pics\n\n![ok](img/dot.png) ![up](../logo.png) ![out](../../../outside.png)"
+      " <img src=\"data:image/png;base64,AAAA\">\n\n[guide](guide.md) [escape](../../../x.md)\n\n"
+      "```js\nconst x = 1;\n```\n\n```nosuchlang\nplain\n```\n")
+    w(os.path.join(p, "doc", "img", "dot.png"), DOT_PNG, "wb")
+    w(os.path.join(p, "doc", "img", "pic.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>')
+    w(os.path.join(WORK, "outside.png"), DOT_PNG, "wb")
     w(os.path.join(p, "build", "gen.java"), "class Gen { needle }\n")
     w(os.path.join(p, "logo.png"), b"\x89PNG\r\n\x1a\n\x00\x00", "wb")
     w(os.path.join(p, "fake.txt"), b"abc\x00\x01\x02def" * 20, "wb")
@@ -442,10 +450,36 @@ def link_server_checks():
     check("link lookups are fast (50 member lookups < 1.5 s)", time.time() - t0 < 1.5, f"{time.time() - t0:.2f}s")
 
 
+DOT_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
+
+
+def image_server_checks():
+    """/api/image: markdown preview images, inside the open folder only."""
+    def get(path):
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/image?path=" + urllib.parse.quote(path), timeout=5) as r:
+                return r.status, r.headers, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers, e.read()
+
+    code, h, body = get("proj/doc/img/dot.png")
+    check("image API serves a png inside the folder (type, nosniff, sandbox CSP)",
+          code == 200 and body == DOT_PNG and h["Content-Type"] == "image/png"
+          and h["X-Content-Type-Options"] == "nosniff" and "sandbox" in (h["Content-Security-Policy"] or ""), f"{code} {dict(h)}")
+    code, h, _ = get("proj/doc/img/pic.svg")
+    check("image API: svg gets image/svg+xml and a sandbox CSP", code == 200 and h["Content-Type"] == "image/svg+xml"
+          and "sandbox" in (h["Content-Security-Policy"] or ""), f"{code} {dict(h)}")
+    refused = {p: get(p)[0] for p in ("../outside.png", "proj/../../outside.png", os.path.join(WORK, "outside.png"),
+                                      "proj/doc/pics.md", "proj/doc/img/none.png", "")}
+    check("image API refuses paths outside the folder, non-images and missing files",
+          all(c == 404 for c in refused.values()), str(refused))
+
+
 def main():
     setup()
     start_server()
     link_server_checks()
+    image_server_checks()
     from playwright.sync_api import sync_playwright
 
     P = lambda *a: os.path.join(BASE, "proj", *a)  # noqa: E731
@@ -967,6 +1001,28 @@ def main():
         ev("panes[activePaneIdx].previewEl.querySelector('a').click()")
         page.wait_for_function("currentPath === 'proj/B.java'", timeout=5000)
         check("relative md link opens file, page not navigated", page.url == href0)
+        ev("openFile('proj/doc/pics.md')")
+        page.wait_for_function("currentPath === 'proj/doc/pics.md'", timeout=5000)
+        page.wait_for_function("(() => { const i = panes[activePaneIdx].previewEl.querySelector('img'); return i && i.complete; })()", timeout=5000)
+        imgs = ev("[...panes[activePaneIdx].previewEl.querySelectorAll('img')].map(i => [i.alt, i.getAttribute('src'), i.naturalWidth])")
+        check("md preview: relative image served from the folder and shown",
+              imgs[0] == ["ok", "/api/image?path=proj%2Fdoc%2Fimg%2Fdot.png", 1], str(imgs))
+        check("md preview: ../ image resolves next to the md file", imgs[1][:2] == ["up", "/api/image?path=proj%2Flogo.png"], str(imgs))
+        check("md preview: image path out of the folder and data: URL get no src",
+              imgs[2][:2] == ["out", None] and imgs[3][1] is None and len(imgs) == 4, str(imgs))
+        page.wait_for_function("!!panes[activePaneIdx].previewEl.querySelector('code[data-hl]')", timeout=8000)
+        hl = ev("[...panes[activePaneIdx].previewEl.querySelectorAll('pre > code')].map(c => [c.className, c.querySelectorAll('span[class^=mtk]').length > 1, c.textContent, !!c.dataset.hl])")
+        check("md preview: fenced js code is highlighted, text unchanged",
+              hl[0][0] == "language-js" and hl[0][1] and hl[0][2] == "const x = 1;" and hl[0][3], str(hl))
+        check("md preview: unknown fence language stays plain text", hl[1] == ["language-nosuchlang", False, "plain\n", False], str(hl))
+        check("md preview: highlighted html kept for the next render",
+              "data-hl" in ev("docs.get('proj/doc/pics.md').html"))
+        ev("[...panes[activePaneIdx].previewEl.querySelectorAll('a')].find(a => a.textContent === 'escape').click()")
+        time.sleep(0.3)
+        check("md link out of the folder is ignored", ev("currentPath") == "proj/doc/pics.md")
+        ev("[...panes[activePaneIdx].previewEl.querySelectorAll('a')].find(a => a.textContent === 'guide').click()")
+        page.wait_for_function("currentPath === 'proj/doc/guide.md'", timeout=5000)
+        check("md link next to the md file opens in ReadO", page.url == href0)
 
         # --- split shares the model ---
         ev("while (panes.length > 1) closePane(panes.length - 1)")  # jumps above opened beside

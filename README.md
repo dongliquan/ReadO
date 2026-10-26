@@ -249,6 +249,8 @@ build.bat                  # runs fetch-vendor.py automatically if vendor\ is in
 # → dist\reado.exe  (one file, no Python and no network required at runtime)
 ```
 
+Releasing a new build (build into `dist-next`, test, swap into `dist`, cut the version): [docs/RELEASE.md](docs/RELEASE.md).
+
 <a id="s3"></a>
 
 ## Offline assets (`vendor/`)
@@ -331,8 +333,12 @@ checks and a per-process token on every write request.
 
 - `server.py` — loopback HTTP server: file tree / content / save, search (ripgrep, Python fallback), symbol index
   (Universal Ctags), go to definition / usages, settings and UI state, `/vendor/` assets; every write goes through
-  the `@write_api` guard
-- `source.html` — single-page UI (Monaco + Pretendard / D2Coding fonts)
+  the `@write_api` guard. Feature blocks live in `srv_search.py` (Find in Files), `srv_goto.py` (go to definition /
+  usages), `srv_links.py` (component tags, import links), `srv_tags.py` (ctags index), `srv_fileops.py` (replace in
+  files, tree file operations); each reads the core's globals as `server.NAME` at call time
+- `source.html` — single-page UI (Monaco + Pretendard / D2Coding fonts): markup plus `<!--#include ui/...-->` lines;
+  the server puts the `ui/*.css` / `ui/*.js` files in their place when it serves the page, so the browser still
+  gets one style and one script (a new file needs its include line; order = run order)
 - `gitview.py` — read-only git views behind `/api/git/*` (guarded git runner, status, log sessions, blame …);
   `git.js` / `git.css` — the Git tool window, served next to `source.html`
 - `tests/` — `test_git.py` (headless API tests on fixture repositories, `git_fixture.py`), `ui_git_smoke.py` (browser);
@@ -344,7 +350,9 @@ checks and a per-process token on every write request.
   `startguard.py` — start-up watchdog (no window in 20 s: `startup.log` + exit) and the checks a second launch makes
   on a running instance; `nowmi.py` — keeps WMI queries out of the process (also a PyInstaller runtime hook)
 - `fetch-vendor.py` — downloads the bundled 3rd-party assets into `vendor/` (stdlib only, versions pinned)
-- `build.bat` — PyInstaller one-file build
+- `build.bat` — PyInstaller one-file build (`build.bat dist-next` builds next to a running `dist\reado.exe`)
+- `scripts/` — `build_test.py` (build `dist-next` + every automated suite), `swap_dist.py` (tested build into
+  `dist`, old one to `dist-prev`; dry run unless `--apply`) — the release steps are in `docs/RELEASE.md`
 - `docs/` — feature list and gap analysis (`FEATURES.md`), performance report (`PERF.md`), design review (`DESIGN-REVIEW.md`)
 
 <a id="s7"></a>

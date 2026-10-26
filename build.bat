@@ -71,6 +71,8 @@ pyinstaller --noconfirm --onefile --windowed --name reado ^
     --add-data "%~dp0vendor;vendor" ^
     --add-data "%~dp0icon.ico;." ^
     --hidden-import server ^
+    --hidden-import srv_search --hidden-import srv_goto --hidden-import srv_links ^
+    --hidden-import srv_tags --hidden-import srv_fileops ^
     --paths "%~dp0." ^
     %ICON_OPT% ^
     reado.py

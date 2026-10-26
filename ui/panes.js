@@ -687,7 +687,6 @@ async function closeTabIn(paneIdx, path, force) {
 }
 
 // Convenience aliases for older callers
-function switchTab(path) { switchTabIn(activePaneIdx, path); }
 function closeTab(path) { return closeTabIn(activePaneIdx, path); }
 
 // gotoLine/find: jump there after opening (find = {term, regex, caseS, word}).

@@ -44,7 +44,6 @@
   body.theme-dark .res-line:hover { background: #3a4150; color: var(--text); }
   body.theme-dark .modal input,
   body.theme-dark .modal textarea,
-  body.theme-dark .search-bar input[type=text],
   body.theme-dark .qo input { background: #21252b; color: var(--text); border-color: var(--border-strong); }
   * { box-sizing: border-box; }
   /* the app never scrolls as a page: title bar, toolbar, Git panel and status bar stay put, their parts scroll */

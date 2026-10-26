@@ -1,5 +1,4 @@
 let _settings = {};
-let _activeMatch = null;
 
 // === Saved UI state ===
 // Kept by the server (state.json), not localStorage: pywebview runs WebView2 in

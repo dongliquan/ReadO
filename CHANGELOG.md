@@ -110,6 +110,7 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
 ## 목차
 
 - [**Unreleased**](#unreleased)
+- [**0.2.0 (proposed) — 2026-10-26**](#v020)
 - [**0.1.0 — first release**](#v010)
 
 ---
@@ -118,7 +119,15 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
 
 ## Unreleased
 
-Changes since 0.1.0, not yet given a version number.
+Nothing yet.
+
+---
+
+<a id="v020"></a>
+
+## 0.2.0 (proposed) — 2026-10-26
+
+Proposed number, not tagged yet: the app still says 0.1.0 (`server.py` `VERSION`, README) until it is confirmed.
 
 ### Search
 
@@ -219,6 +228,17 @@ Changes since 0.1.0, not yet given a version number.
 - The headless editor suite is in the repository: `python tests/verify_editor.py`.
 - `python tests/exe_startup.py dist\reado.exe`: the start-up watchdog and the second launch past a stuck instance,
   on the built exe.
+
+### Development
+
+- `source.html` and `server.py` are split by feature, with no change in behaviour: the page's style and script live
+  in `ui/*.css` / `ui/*.js` (put back in place when the page is served, so the browser gets the same single page),
+  the server's feature blocks in `srv_search.py`, `srv_goto.py`, `srv_links.py`, `srv_tags.py`, `srv_fileops.py`.
+  Dead code left from the old search panel is gone.
+- `python scripts/build_test.py` builds `dist-next` and runs every automated suite, one at a time;
+  `python scripts/swap_dist.py` puts a tested build into `dist` (old one to `dist-prev`, SHA256 checked) — a dry run
+  unless `--apply`; a running ReadO only gets a normal close, and unsaved edits stop the swap. Steps:
+  `docs/RELEASE.md`.
 
 ---
 

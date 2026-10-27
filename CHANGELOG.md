@@ -222,6 +222,8 @@ Proposed number, not tagged yet: the app still says 0.1.0 (`server.py` `VERSION`
   doing, every thread's stack) and exits instead of hanging invisibly.
 - A second launch no longer hands its files to an instance that never showed a window: it waits for that instance's
   window (up to 25 seconds), then ends it (only that ReadO process — it has no unsaved edits) and starts on its own.
+- When a second launch (or AgentO's **Open in ReadO**) hands a file to the running window, a maximized window stays
+  maximized: only a minimized window is restored before it comes to the front.
 
 ### Tests
 

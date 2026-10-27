@@ -664,11 +664,17 @@ def bind_server():
 
 
 def raise_window(win):
+    """Bring the window to the front for a file handed over by a second launch (AgentO's "Open in ReadO" too).
+    Only a minimized window is restored: a maximized one stays maximized (restore() would un-maximize it)."""
     try:
-        win.restore()
         if os.name == "nt":
             import ctypes
-            ctypes.windll.user32.SetForegroundWindow(int(win.native.Handle.ToInt64()))
+            h = int(win.native.Handle.ToInt64())
+            if ctypes.windll.user32.IsIconic(h):
+                win.restore()
+            ctypes.windll.user32.SetForegroundWindow(h)
+        else:
+            win.restore()
     except Exception:
         pass
 

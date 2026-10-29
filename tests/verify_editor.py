@@ -943,6 +943,16 @@ def main():
               ev("document.getElementById('fifExcl').value") == defs and ev("STATE.fifOpts.exclude") == defs
               and ev("document.getElementById('fifDefExcl').tagName") == "BUTTON"
               and ev("document.getElementById('fifDefExcl').title").startswith("Defaults: put the default exclude patterns back"))
+        # real input: mouse click into the box, then keys (not a value set by script)
+        page.click("#fifExcl"); page.keyboard.press("End"); page.keyboard.type(", /xs/gen/**")
+        page.wait_for_function("_fifResults.length === 1", timeout=8000)
+        time.sleep(0.5)
+        check("exclude box: clicked and typed keys are taken, searched and saved",
+              ev("document.activeElement.id") == "fifExcl" and ev("STATE.fifOpts.exclude") == defs + ", /xs/gen/**")
+        check("exclude box: the grey text reads as an example, not as a value",
+              "e.g." in ev("document.getElementById('fifExcl').placeholder"))
+        ev("document.getElementById('fifDefExcl').click()")
+        page.wait_for_function("_fifResults.length === 2", timeout=8000)
         ev("STATE.fifOpts = {exclude: 'foo/**', defExcl: true}; closeFIF(); openFIF('')")
         old_on = ev("document.getElementById('fifExcl').value")
         ev("STATE.fifOpts = {exclude: 'foo/**', defExcl: false}; closeFIF(); openFIF('')")

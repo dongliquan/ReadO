@@ -134,6 +134,12 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
 - The saved theme is applied before the page first paints (no light flash when ReadO starts in the dark theme).
 - Fixed: the toolbar theme button (icon only: moon in the light theme, sun in the dark one) showed the previous
   theme's icon right after a switch. It now changes with the theme and has an aria-label naming the current one.
+- Faster: Find in Files and go to definition no longer run the whole search a second time without ripgrep when
+  ripgrep could not read a few files (e.g. `.gradle/*.lock` held by a running Gradle or IDE). A no-hit search over a
+  15-repository folder took 22–103 s, now about 1.7 s; the results are the same.
+- Find in Files while typing: an older search stops as soon as a newer one starts, also while it has found nothing
+  yet, and a search waits up to 1 s for a free slot instead of failing at once with "search capacity reached" (the
+  last word typed could come back as that error and no results).
 
 ---
 

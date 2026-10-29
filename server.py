@@ -960,6 +960,9 @@ def read_image(key: str):
 
 # ----- search -> srv_search.py -----
 USE_RIPGREP = True
+# seconds a search / goto / refs request waits for one of the 2 gate slots
+# before answering 429; a superseded search frees its slot within ~50 ms
+SEARCH_GATE_WAIT = 1.0
 
 from srv_search import (  # noqa: E402,F401
     CONTENT_CACHE_BYTES, MAX_LINE_CHARS, RG_TIMEOUT, SEARCH_MORE_MAX, _ByteLRU, _CONTENT_CACHE,
@@ -1649,7 +1652,7 @@ class Handler(BaseHTTPRequestHandler):
                 limit = int(q.get("max", "0") or 0)
             except ValueError:
                 limit = 0
-            if not _SEARCH_GATE.acquire(blocking=False):
+            if not _SEARCH_GATE.acquire(timeout=SEARCH_GATE_WAIT):
                 return self._send(429, {"error": "search capacity reached; try again shortly"})
             try:
                 res = find_in_files(
@@ -1670,7 +1673,7 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == "/api/goto" and q.get("index_only") == "1":  # cheap: no search, no gate
             self._send(200, goto_symbol(q.get("symbol", ""), q.get("scope", ""), q.get("from", ""), index_only=True))
         elif u.path == "/api/goto":
-            if not _SEARCH_GATE.acquire(blocking=False):
+            if not _SEARCH_GATE.acquire(timeout=SEARCH_GATE_WAIT):
                 return self._send(429, {"error": "search capacity reached; try again shortly"})
             try:
                 res = goto_symbol(q.get("symbol", ""), q.get("scope", ""), q.get("from", ""))
@@ -1678,7 +1681,7 @@ class Handler(BaseHTTPRequestHandler):
                 _SEARCH_GATE.release()
             self._send(200, res)
         elif u.path == "/api/refs":
-            if not _SEARCH_GATE.acquire(blocking=False):
+            if not _SEARCH_GATE.acquire(timeout=SEARCH_GATE_WAIT):
                 return self._send(429, {"error": "search capacity reached; try again shortly"})
             try:
                 res = find_references(q.get("symbol", ""), q.get("scope", ""), q.get("from", ""))

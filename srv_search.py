@@ -225,8 +225,9 @@ def _rg_events(args, kind, gen, cwd=None):
     """Run ripgrep and yield its JSON events as they stream in.
 
     Stops (and kills rg) when the consumer stops iterating, when a newer
-    request of the same kind arrives, or after RG_TIMEOUT. Yields a final
-    {"type": "_exit", "code": n} so callers can tell errors from no-matches."""
+    request of the same kind arrives (also while rg prints nothing), or after
+    RG_TIMEOUT. Yields a final {"type": "_exit", "code": n} so callers can
+    tell errors from no-matches."""
     try:
         proc = subprocess.Popen(
             args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -238,18 +239,39 @@ def _rg_events(args, kind, gen, cwd=None):
     timer = threading.Timer(RG_TIMEOUT, proc.kill)
     timer.daemon = True
     timer.start()
+    done = threading.Event()
+
+    def _watch():  # a search with no output yet would otherwise hold its gate slot to the end
+        while not done.wait(0.05):
+            if _is_stale(kind, gen):
+                proc.kill()
+                return
+    threading.Thread(target=_watch, daemon=True).start()
+    summary = False
     try:
         for raw in proc.stdout:
             if _is_stale(kind, gen):
                 yield {"type": "_exit", "code": "stale"}
                 return
             try:
-                yield json.loads(raw)
+                obj = json.loads(raw)
             except ValueError:
                 continue
+            summary = summary or obj.get("type") == "summary"
+            yield obj
         proc.wait()
-        yield {"type": "_exit", "code": proc.returncode}
+        if _is_stale(kind, gen):
+            yield {"type": "_exit", "code": "stale"}
+            return
+        code = proc.returncode
+        # 2 with a summary: rg searched everything but could not read some
+        # files (e.g. .gradle/*.lock held by another process); the results
+        # stand. Without a summary (bad regex...) the caller falls back.
+        if code == 2 and summary:
+            code = 0
+        yield {"type": "_exit", "code": code}
     finally:
+        done.set()
         timer.cancel()
         if proc.poll() is None:
             proc.kill()

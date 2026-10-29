@@ -179,7 +179,7 @@ function replaceRequest() {
     scope: fifScopeValue(),
     glob: document.getElementById('fifGlob').value.trim(),
     exclude: document.getElementById('fifExcl').value.trim(),
-    default_excludes: document.getElementById('fifDefExcl').checked,
+    default_excludes: false,  // the exclude box holds the defaults itself (fifDefaultExcludes)
   };
 }
 async function previewReplace() {

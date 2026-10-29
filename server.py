@@ -1298,7 +1298,10 @@ VERSION = "0.1.0"  # the app version (Help → About); bump with CHANGELOG.md
 
 
 def settings_status():
-    return {**SETTINGS, "first_run": _first_run, "base_dir_exists": base_root() is not None, "version": VERSION}
+    # search_default_excludes: what Find in Files' exclude box starts with and its
+    # Defaults button puts back (read-only here; save_settings keeps known keys only)
+    return {**SETTINGS, "first_run": _first_run, "base_dir_exists": base_root() is not None, "version": VERSION,
+            "search_default_excludes": list(SETTINGS.get("search_ignored") or []) + list(SEARCH_DEFAULT_EXCLUDES)}
 
 
 @write_api("/api/settings")

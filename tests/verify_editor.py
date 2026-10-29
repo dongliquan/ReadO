@@ -28,7 +28,7 @@ WORK = os.environ.get("READO_TEST_WORK") or os.path.join(tempfile.gettempdir(), 
 BASE = os.path.join(WORK, "base")
 OUT = os.path.join(WORK, "outside")
 CFG = os.path.join(WORK, "cfg")
-PORT = 8799
+PORT = int(os.environ.get("READO_TEST_PORT") or 8799)  # another app may hold 8799
 
 sys.path.insert(0, REPO)
 import server  # noqa: E402
@@ -218,6 +218,8 @@ def setup():
     w(os.path.join(p, ".gitignore"), "build/\n")
     w(os.path.join(p, ".git", "config"), "[core]\n")
     w(os.path.join(p, "doc", "guide.md"), "# Guide\n")
+    for name in ("Widgets.vue", "sub/widgets.vue", "WidgetsSidebar.vue", "AboutUsWidgets.vue"):  # Find File order
+        w(os.path.join(p, "qo", *name.split("/")), "<template><div/></template>\n")
     w(os.path.join(p, "doc", "pics.md"),
       "# Pics\n\n![ok](img/dot.png) ![up](../logo.png) ![out](../../../outside.png)"
       " <img src=\"data:image/png;base64,AAAA\">\n\n[guide](guide.md) [escape](../../../x.md)\n\n"
@@ -919,18 +921,34 @@ def main():
         check("replace preview refuses a bad exclude pattern", st == 400 and "not allowed" in body.get("error", ""), str(body))
         ev("openFIF('xneedle'); runFIF()")
         page.wait_for_function("_fifResults.length === 2", timeout=8000)
-        check("Find in Files: Defaults on and exclude empty by default",
-              ev("document.getElementById('fifDefExcl').checked && document.getElementById('fifExcl').value === ''"))
+        defs = ", ".join(list(server.SETTINGS.get("search_ignored") or []) + list(server.SEARCH_DEFAULT_EXCLUDES))
+        check("Find in Files: the exclude box starts with the default patterns",
+              ev("document.getElementById('fifExcl').value") == defs, ev("document.getElementById('fifExcl').value"))
         ev("[...document.querySelectorAll('#fifResults .res-file')].find(e => e.title === 'xs/gen/g.js').querySelector('.fd-excl').click()")
         page.wait_for_function("_fifResults.length === 1", timeout=8000)
         check("'⊘ folder' adds the result's folder to the excludes",
-              ev("document.getElementById('fifExcl').value") == "/xs/gen/**" and ev("_fifResults[0].path") == "xs/app.js")
-        ev("document.getElementById('fifDefExcl').click()")
+              ev("document.getElementById('fifExcl').value") == defs + ", /xs/gen/**" and ev("_fifResults[0].path") == "xs/app.js")
+        ev("const e = document.getElementById('fifExcl'); e.value = '/xs/gen/**'; e.dispatchEvent(new Event('input'))")
         page.wait_for_function("_fifResults.length === 9", timeout=8000)
-        check("Defaults toggle off searches the default-excluded files", True)
-        check("exclude options kept in the saved UI state",
-              ev("STATE.fifOpts.exclude === '/xs/gen/**' && STATE.fifOpts.defExcl === false"))
-        ev("document.getElementById('fifDefExcl').click(); document.getElementById('fifExcl').value = ''; saveFIFOpts()")
+        check("editing the exclude box applies as typed (default patterns taken out: those files are searched)", True)
+        time.sleep(0.5)
+        check("edited excludes kept in the saved UI state", ev("STATE.fifOpts.exclude === '/xs/gen/**' && STATE.fifOpts.exclV === 2"))
+        ev("closeFIF(); openFIF('xneedle')")
+        check("edited excludes come back when the dialog opens again", ev("document.getElementById('fifExcl').value") == "/xs/gen/**")
+        page.wait_for_function("_fifResults.length === 9", timeout=8000)
+        ev("document.getElementById('fifDefExcl').click()")
+        page.wait_for_function("_fifResults.length === 2", timeout=8000)
+        check("Defaults puts the default patterns back (button, says so in its tooltip)",
+              ev("document.getElementById('fifExcl').value") == defs and ev("STATE.fifOpts.exclude") == defs
+              and ev("document.getElementById('fifDefExcl').tagName") == "BUTTON"
+              and ev("document.getElementById('fifDefExcl').title").startswith("Defaults: put the default exclude patterns back"))
+        ev("STATE.fifOpts = {exclude: 'foo/**', defExcl: true}; closeFIF(); openFIF('')")
+        old_on = ev("document.getElementById('fifExcl').value")
+        ev("STATE.fifOpts = {exclude: 'foo/**', defExcl: false}; closeFIF(); openFIF('')")
+        old_off = ev("document.getElementById('fifExcl').value")
+        check("saved options of the old Defaults toggle carry over (on: defaults + own patterns, off: own only)",
+              old_on == defs + ", foo/**" and old_off == "foo/**", f"{old_on!r} {old_off!r}")
+        ev("fifResetExcludes()")
         vp = page.viewport_size
         page.set_viewport_size({"width": 640, "height": 600})
         fit = ev("""(() => { const row = document.getElementById('fifOpts').getBoundingClientRect();
@@ -938,7 +956,7 @@ def main():
               const e = document.getElementById(id), r = (e.type === 'checkbox' ? e.parentElement : e).getBoundingClientRect();
               return id + ':' + (r.width > 0 && r.left >= row.left - 1 && r.right <= row.right + 1 && r.bottom <= row.bottom + 1);
             }).join(' ') + ' overflow:' + (document.getElementById('fifOpts').scrollWidth > document.getElementById('fifOpts').clientWidth); })()""")
-        check("narrow window: mask, exclude and Defaults stay visible (the option row wraps)",
+        check("narrow window: mask, exclude and the Defaults button stay visible (the option row wraps)",
               "false" not in fit.split(" overflow:")[0] and fit.endswith("overflow:false"), fit)
         page.set_viewport_size(vp)
         ev("closeFIF()")
@@ -973,6 +991,21 @@ def main():
         closes("Files: ✕ closes", "openQO('')", lambda: page.click("#qoClose"))
         closes("Commands: Esc closes", "openQO('>')", lambda: page.keyboard.press("Escape"))
         closes("Symbols: ✕ closes", "openQO('#')", lambda: page.click("#qoClose"))
+
+        # Find File: a file named exactly like the query comes before loose matches from the recent list
+        ev("window._recent0 = STATE.recent; STATE.recent = ['proj/qo/WidgetsSidebar.vue', 'proj/qo/sub/widgets.vue']")
+        def qo_paths(q):
+            ev(f"openQO({json.dumps(q)})")
+            page.wait_for_function("!_qoLoading && _qoItems.some(i => i.path === 'proj/qo/Widgets.vue')", timeout=8000)
+            return ev("_qoItems.map(i => i.path)")
+        got = qo_paths("widgets.vue")
+        check("Find File: exact file names (any case) first, in their order; recent loose matches after them",
+              got[:4] == ["proj/qo/sub/widgets.vue", "proj/qo/Widgets.vue", "proj/qo/WidgetsSidebar.vue", "proj/qo/AboutUsWidgets.vue"],
+              str(got))
+        got = qo_paths("qo/widgets.vue")
+        check("Find File: a query with a path keeps the old order (recent matches first)",
+              got[-1] == "proj/qo/Widgets.vue" and set(got[:-1]) == {"proj/qo/WidgetsSidebar.vue", "proj/qo/sub/widgets.vue"}, str(got))
+        ev("closeQO(); STATE.recent = window._recent0")
         ev("openSettings()")
         page.wait_for_selector("#settingsBg.show")
         page.wait_for_function("document.getElementById('setSearchIgnored').value.includes('build')")
@@ -1592,6 +1625,19 @@ def main():
         want = {"dark": "#282c34", "light": "#ffffff"}
         check("theme change sends the window background color (dark #282c34 / light #ffffff)",
               calls == [want["light" if th0 == "dark" else "dark"], want[th0]], str(calls))
+        # theme before first paint: the served page applies the saved theme right after <body>
+        html = ev("fetch('/').then(r => r.text())")
+        body_at = html.find("<body>")
+        first_script = html.find("<script", body_at)
+        pre = html[first_script:html.find("</script>", first_script)].split(">", 1)[1]
+        p3 = ctx.new_page()
+        got = []
+        for st in ({"theme": "dark"}, {"theme": "light"}, {}):
+            p3.set_content("<html><head></head><body></body></html>")
+            got.append(p3.evaluate("([st, src]) => { window.READO_STATE = st; (0, eval)(src); return document.body.className; }", [st, pre]))
+        p3.close()
+        check("pre-paint theme script comes first in <body>: dark -> theme-dark, light / none -> theme-light",
+              html[body_at + 6:first_script].strip() == "" and got == ["theme-dark", "theme-light", "theme-light"], str(got))
         # theme button: icon only, and the icon follows the theme right after each toggle
         def theme_btn():
             return ev("""(() => { const b = document.getElementById('themeBtn');

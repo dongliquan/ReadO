@@ -5,9 +5,26 @@ let _fifTerm = '';
 let _fifFind = null;      // {term, regex, caseS, word} of the shown results
 
 let _fifMax = 0;           // 0: the settings' cap; "show more" raises it
-const FIF_OPT_IDS = { caseS: 'fifCase', word: 'fifWord', regex: 'fifRegex', glob: 'fifGlob', exclude: 'fifExcl', defExcl: 'fifDefExcl', ctx: 'fifCtx', scope: 'fifScope' };
+const FIF_OPT_IDS = { caseS: 'fifCase', word: 'fifWord', regex: 'fifRegex', glob: 'fifGlob', exclude: 'fifExcl', ctx: 'fifCtx', scope: 'fifScope' };
+// The exclude box is the whole exclude list: it starts with the default patterns
+// (Settings' search-ignored folders + the built-in noise list, from /api/settings)
+// and is edited freely; Defaults puts them back. Kept in state.json (ui.fifOpts).
+function fifDefaultExcludes() {
+  return (_settings.search_default_excludes || []).join(', ');
+}
+function fifResetExcludes() {
+  document.getElementById('fifExcl').value = fifDefaultExcludes();
+  _fifMax = 0;
+  saveFIFOpts();
+  runFIF();
+}
 function restoreFIFOpts() {  // STATE.fifOpts: the option bar as it was last left
-  const o = STATE.fifOpts && typeof STATE.fifOpts === 'object' ? STATE.fifOpts : {};
+  const o = Object.assign({}, STATE.fifOpts && typeof STATE.fifOpts === 'object' ? STATE.fifOpts : {});
+  if (o.exclV !== 2) {  // never saved, or saved by a build with the Defaults on/off toggle
+    const own = String(o.exclude || '').split(',').map(s => s.trim()).filter(Boolean);
+    const defs = o.defExcl === false ? [] : (_settings.search_default_excludes || []);
+    o.exclude = [...new Set(defs.concat(own))].join(', ');
+  }
   for (const [k, id] of Object.entries(FIF_OPT_IDS)) {
     if (!(k in o)) continue;
     const e = document.getElementById(id);
@@ -19,6 +36,7 @@ function restoreFIFOpts() {  // STATE.fifOpts: the option bar as it was last lef
 function saveFIFOpts() {
   const o = {};
   for (const [k, id] of Object.entries(FIF_OPT_IDS)) { const e = document.getElementById(id); o[k] = e.type === 'checkbox' ? e.checked : e.value; }
+  o.exclV = 2;
   STATE.fifOpts = o;
   saveState();
 }
@@ -105,12 +123,11 @@ async function runFIF() {
   const word = document.getElementById('fifWord').checked ? 1 : 0;
   const glob = document.getElementById('fifGlob').value.trim();
   const exclude = document.getElementById('fifExcl').value.trim();
-  const defExcl = document.getElementById('fifDefExcl').checked ? 1 : 0;
   const scope = fifScopeValue();
   const ctx = parseInt(document.getElementById('fifCtx').value) || 0;
   const find = { term: q, regex: !!regex, caseS: !!caseS, word: !!word };
   const url = `/api/search?q=${encodeURIComponent(q)}&case=${caseS}&regex=${regex}&word=${word}&glob=${encodeURIComponent(glob)}&scope=${encodeURIComponent(scope)}&ctx=${ctx}` +
-    `&exclude=${encodeURIComponent(exclude)}&defexcl=${defExcl}` + (_fifMax ? `&max=${_fifMax}` : '');
+    `&exclude=${encodeURIComponent(exclude)}&defexcl=0` + (_fifMax ? `&max=${_fifMax}` : '');
   summary.textContent = 'searching...';
   if (!_fifMax) resultsEl.innerHTML = '';  // "show more" keeps the list until the longer one arrives
   previewEl.innerHTML = '<div class="qo-empty">searching...</div>';
@@ -310,7 +327,8 @@ document.getElementById('fifQ').addEventListener('keydown', e => {
   _fifMax = 0;
   _fifTimer = setTimeout(() => { saveFIFOpts(); runFIF(); }, 300);
 }));
-['fifCase','fifWord','fifRegex','fifDefExcl','fifScope','fifCtx'].forEach(id => {
+document.getElementById('fifDefExcl').addEventListener('click', fifResetExcludes);
+['fifCase','fifWord','fifRegex','fifScope','fifCtx'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => { _fifMax = 0; saveFIFOpts(); runFIF(); });
 });
 

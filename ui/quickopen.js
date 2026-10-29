@@ -84,6 +84,7 @@ async function runQO() {
   _qoItems = STATE.recent.map(k => ({ k, m: fuzzyMatch(raw, k) })).filter(x => x.m)
     .sort((a, b) => b.m.score - a.m.score).slice(0, 5)
     .map(x => ({ label: x.k, path: x.k, indices: x.m.indices, meta: 'recent' }));
+  _qoItems = qoExactNameFirst(_qoItems, raw);
   _qoSel = 0;
   if (_qoItems.length) renderQO(raw);
   await loadQOPage();
@@ -133,6 +134,18 @@ function runCommandSearch(q) {
   renderQO(q);
 }
 
+// Find File: files named exactly like the query (any case) come first, in the
+// order they had; the rest keep theirs. Recent files match loosely (letters in
+// order), so without this they could sit between Items.vue and items.vue.
+// A query with a path (/ or \) is left as it is.
+function qoExactNameFirst(items, query) {
+  const q = query.trim().toLowerCase();
+  if (!q || /[\\/]/.test(q)) return items;
+  const exact = [], rest = [];
+  for (const it of items) (it.path && baseName(it.path).toLowerCase() === q ? exact : rest).push(it);
+  return exact.length ? exact.concat(rest) : items;
+}
+
 let _qoAbort = null;
 let _qoReqSeq = 0;
 async function loadQOPage() {
@@ -153,7 +166,7 @@ async function loadQOPage() {
       indices: x.indices,
       path: x.path,
     }));
-    _qoItems = _qoItems.concat(newItems);
+    _qoItems = qoExactNameFirst(_qoItems.concat(newItems), queryAtStart);
     _qoTotal = data.total || 0;
     _qoHasMore = !!data.has_more;
     _qoOffset += newItems.length;

@@ -119,6 +119,15 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
 
 ## Unreleased
 
+- Find File (`Ctrl+P`): files named exactly like what you typed (any case) come first — `items.vue` lists every
+  `Items.vue` / `items.vue` before `ItemsSidebar.vue` and other loose matches from the recent files. A query with a
+  path (`/`) keeps the old order.
+- Find in Files: the **exclude** box now holds the whole exclude list. It starts with the default patterns (the
+  search-ignored folders from Settings plus `.idea`, `.vs`, minified / bundled js and css, source maps, lock files,
+  `shelved.patch` …), can be edited freely and is kept between runs; **Defaults** is a button that puts the default
+  patterns back (it was an on / off switch for a list you could not see). Saved options carry over: with Defaults on,
+  the box gets the defaults plus your own patterns.
+- The saved theme is applied before the page first paints (no light flash when ReadO starts in the dark theme).
 - Fixed: the toolbar theme button (icon only: moon in the light theme, sun in the dark one) showed the previous
   theme's icon right after a switch. It now changes with the theme and has an aria-label naming the current one.
 

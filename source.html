@@ -14,6 +14,10 @@
 <link rel="stylesheet" href="/app/git.css">
 </head>
 <body>
+<script>
+// theme before first paint (saved state is injected as READO_STATE; same rule as getTheme in ui/editor.js)
+document.body.classList.add(((window.READO_STATE || {}).theme === 'dark') ? 'theme-dark' : 'theme-light');
+</script>
 
 <div class="titlebar" id="titlebar">
   <img class="tb-logo" src="/favicon.ico" alt="" draggable="false" onerror="this.replaceWith(Object.assign(document.createElement('span'), {className: 'tb-logo dot'}))" />
@@ -137,8 +141,8 @@
       <label class="fd-tg" title="Regex (Alt+X)"><input type="checkbox" id="fifRegex" />.*</label>
       <span class="fd-sep"></span>
       <input type="text" id="fifGlob" class="fif-glob" placeholder="file mask: *.java, src/**, !*.patch" title="files to include — comma-separated globs; empty = every text file; !pattern leaves files out (like the exclude box)" autocomplete="off" spellcheck="false" />
-      <input type="text" id="fifExcl" class="fif-glob" placeholder="exclude: .idea/**, *.patch, dist/**" title="files and folders to leave out — comma-separated globs, matched at any depth (*.min.js, .idea/**, src/gen); a leading / starts at the open folder (/web/dist)" autocomplete="off" spellcheck="false" />
-      <label class="fd-tg" title="default excludes: the folders from Settings (build, dist, target, out, bin, obj, coverage …), .idea (with IntelliJ's shelf), .vs, minified and bundled js/css, source maps, *.tsbuildinfo, lock files, shelved.patch — always left out: the hidden names from Settings and binary files"><input type="checkbox" id="fifDefExcl" checked />Defaults</label>
+      <input type="text" id="fifExcl" class="fif-glob" placeholder="exclude: nothing left out (Defaults puts the default patterns back)" title="files and folders to leave out — comma-separated globs, matched at any depth (*.min.js, .idea/**, src/gen); a leading / starts at the open folder (/web/dist). Starts with the default patterns; edit freely — kept between runs. Defaults puts them back" autocomplete="off" spellcheck="false" />
+      <button type="button" class="fd-tg" id="fifDefExcl" title="Defaults: put the default exclude patterns back in the exclude box (the folders from Settings' search-ignored list — build, dist, target … — plus .idea, .vs, minified / bundled js and css, source maps, *.tsbuildinfo, lock files, shelved.patch). Always left out, whatever the box says: the hidden names from Settings and binary files">Defaults</button>
       <select id="fifScope" title="search in">
         <option value="">whole folder</option>
       </select>

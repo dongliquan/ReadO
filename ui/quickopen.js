@@ -90,7 +90,7 @@ async function runQO() {
   _qoItems = qoExactNameFirst(_qoItems, raw);
   _qoSel = 0;
   if (_qoItems.length) renderQO(raw);
-  await loadQOPage();
+  await loadQOPage(true);
 }
 
 // Fuzzy match: a substring (word start preferred), else the letters in order
@@ -151,8 +151,10 @@ function qoExactNameFirst(items, query) {
 
 let _qoAbort = null;
 let _qoReqSeq = 0;
-async function loadQOPage() {
-  if (_qoLoading) return;
+// fresh: a new query (offset 0) replaces a request still in flight; without it
+// the keys typed meanwhile were dropped and the list kept an older result
+async function loadQOPage(fresh) {
+  if (_qoLoading && !fresh) return;
   _qoLoading = true;
   if (_qoAbort) _qoAbort.abort();
   const seq = ++_qoReqSeq;
@@ -180,7 +182,7 @@ async function loadQOPage() {
     if (seq !== _qoReqSeq) return;
     document.getElementById('qoList').innerHTML = '<div class="qo-empty">error: ' + e.message + '</div>';
   } finally {
-    _qoLoading = false;
+    if (seq === _qoReqSeq) _qoLoading = false;
   }
 }
 

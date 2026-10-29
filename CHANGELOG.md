@@ -140,6 +140,8 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
 - Find in Files while typing: an older search stops as soon as a newer one starts, also while it has found nothing
   yet, and a search waits up to 1 s for a free slot instead of failing at once with "search capacity reached" (the
   last word typed could come back as that error and no results).
+- Fixed: Find File (`Ctrl+P`) could keep showing nothing (or an older list) after you stopped typing, until the next
+  key: what was typed while a request was still running was dropped. A new query now replaces the running request.
 
 ---
 

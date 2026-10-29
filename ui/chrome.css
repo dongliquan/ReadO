@@ -161,7 +161,6 @@
   .pane-banner { flex-shrink: 0; padding: 4px 12px; font-size: 12px; background: #fff7e6; color: #92400e;
     border-bottom: 1px solid #f5d9a8; }
   body.theme-dark .pane-banner { background: #3a3122; color: #e5c07b; border-color: #574a30; }
-  .fif-opts .fif-glob { max-width: none; width: 220px; }
   .qo-cats { display: flex; gap: 6px; align-items: center; }
   .qo-cat { padding: 1px 8px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
   .qo-cat.active { background: var(--accent); border-color: var(--accent); color: #fff; }

@@ -140,9 +140,9 @@ document.body.classList.add(((window.READO_STATE || {}).theme === 'dark') ? 'the
       <label class="fd-tg" title="Words (Alt+W)"><input type="checkbox" id="fifWord" />W</label>
       <label class="fd-tg" title="Regex (Alt+X)"><input type="checkbox" id="fifRegex" />.*</label>
       <span class="fd-sep"></span>
-      <input type="text" id="fifGlob" class="fif-glob" placeholder="file mask: *.java, src/**, !*.patch" title="files to include — comma-separated globs; empty = every text file; !pattern leaves files out (like the exclude box)" autocomplete="off" spellcheck="false" />
-      <input type="text" id="fifExcl" class="fif-glob" placeholder="exclude — comma-separated, e.g. *.log, dist/**  (empty: nothing left out)" title="files and folders to leave out — comma-separated globs, matched at any depth (*.min.js, .idea/**, src/gen); a leading / starts at the open folder (/web/dist). Starts with the default patterns; edit freely — kept between runs. Defaults puts them back" autocomplete="off" spellcheck="false" />
-      <button type="button" class="fd-tg" id="fifDefExcl" title="Defaults: put the default exclude patterns back in the exclude box (the folders from Settings' search-ignored list — build, dist, target … — plus .idea, .vs, minified / bundled js and css, source maps, *.tsbuildinfo, lock files, shelved.patch). Always left out, whatever the box says: the hidden names from Settings and binary files">Defaults</button>
+      <input type="hidden" id="fifGlob" />
+      <input type="hidden" id="fifExcl" />
+      <button type="button" class="fd-tg fif-pat" id="fifPatBtn" onclick="openFIFPatterns()"></button>
       <select id="fifScope" title="search in">
         <option value="">whole folder</option>
       </select>
@@ -160,6 +160,28 @@ document.body.classList.add(((window.READO_STATE || {}).theme === 'dark') ? 'the
       </div>
     </div>
     <div class="fd-foot">↑↓ select · Enter open · Ctrl+Enter open beside · Tab Find File · Esc close</div>
+  </div>
+</div>
+
+<div class="modal-bg fifpat-bg" id="fifPatBg" onclick="if(event.target===this)closeFIFPatterns()">
+  <div class="modal fifpat">
+    <h3>file mask &amp; exclude</h3>
+    <div class="field">
+      <label for="fifPatMask">File mask — files to search</label>
+      <textarea id="fifPatMask" spellcheck="false" placeholder="(empty: every text file)"></textarea>
+      <div class="fifpat-hint">One pattern per line, or comma-separated — e.g. <code>*.vue</code>, <code>src/**</code>. Empty: every text file. <code>!pattern</code> leaves files out (<code>!*.min.js</code>).</div>
+    </div>
+    <div class="field">
+      <label for="fifPatExcl">Exclude — files and folders to leave out</label>
+      <textarea id="fifPatExcl" spellcheck="false" placeholder="(empty: nothing left out)"></textarea>
+      <div class="fifpat-hint">Matched at any depth (<code>.idea/**</code>, <code>*.min.js</code>, <code>gen</code>); a leading <code>/</code> starts at the open folder (<code>/web/dist</code>).
+        Starts with the default patterns. Always left out, whatever this says: the hidden names from Settings and binary files.</div>
+    </div>
+    <div class="actions-row">
+      <button type="button" id="fifPatDefaults" class="fifpat-left" onclick="fifPatDefaults()" title="Defaults: put the default exclude patterns back in the exclude list (Settings' search-ignored folders — build, dist, target … — plus .idea, .vs, minified / bundled js and css, source maps, *.tsbuildinfo, lock files, shelved.patch). Apply to use them">Defaults</button>
+      <button type="button" onclick="closeFIFPatterns()">Cancel</button>
+      <button type="button" class="primary" id="fifPatApply" onclick="applyFIFPatterns()" title="Apply (Ctrl+Enter)">Apply</button>
+    </div>
   </div>
 </div>
 

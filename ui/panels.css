@@ -161,7 +161,16 @@
   .fd .fif-opts .fd-tg:has(input:checked), .fd .fif-opts .fd-tg.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
     border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
   .fd .fif-opts .fd-sep { width: 1px; height: 16px; background: var(--border); }
-  .fd .fif-opts #fifGlob, .fd .fif-opts #fifExcl { flex: 1 1 150px; max-width: none; min-width: 120px; }
+  .fd .fif-opts .fif-pat { flex: 0 1 auto; min-width: 0; max-width: 340px; justify-content: flex-start; font-weight: 400;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 22px; }
+  .fd .fif-opts .fif-pat:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+  /* file mask & exclude dialog: above the find dialog */
+  .modal-bg.fifpat-bg { z-index: 270; }
+  .modal.fifpat { width: 560px; }
+  .modal.fifpat textarea { min-height: 96px; max-height: 40vh; line-height: 1.5; }
+  .fifpat-hint { margin-top: 4px; font-size: 11px; color: var(--text-mute); line-height: 1.5; }
+  .fifpat-hint code { font-family: var(--mono); color: var(--text-dim); background: var(--bg); padding: 0 3px; border-radius: 3px; }
+  .modal .actions-row .fifpat-left { margin-right: auto; }
   .fd-list .res-file .fd-excl { display: none; padding: 0 6px; border-radius: 3px; color: var(--text-mute); font-weight: 400; font-size: 11px; }
   .fd-list .res-file:hover .fd-excl { display: inline; }
   .fd-list .res-file .fd-excl:hover { color: var(--accent); background: var(--bg); }

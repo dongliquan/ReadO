@@ -929,30 +929,58 @@ def main():
         page.wait_for_function("_fifResults.length === 1", timeout=8000)
         check("'⊘ folder' adds the result's folder to the excludes",
               ev("document.getElementById('fifExcl').value") == defs + ", /xs/gen/**" and ev("_fifResults[0].path") == "xs/app.js")
-        ev("const e = document.getElementById('fifExcl'); e.value = '/xs/gen/**'; e.dispatchEvent(new Event('input'))")
-        page.wait_for_function("_fifResults.length === 9", timeout=8000)
-        check("editing the exclude box applies as typed (default patterns taken out: those files are searched)", True)
+        n_defs = len(list(server.SETTINGS.get("search_ignored") or []) + list(server.SEARCH_DEFAULT_EXCLUDES))
+        check("option bar: a summary button instead of the mask / exclude boxes",
+              ev("document.getElementById('fifPatBtn').textContent") == f"mask: all files · exclude: {n_defs + 1}"
+              and ev("document.getElementById('fifExcl').type") == "hidden", ev("document.getElementById('fifPatBtn').textContent"))
+        # the file mask & exclude dialog: real clicks and keys
+        page.click("#fifPatBtn")
+        page.wait_for_selector("#fifPatBg.show", timeout=3000)
+        check("summary button opens the dialog: one pattern per line, the exclude list focused, above the find dialog",
+              ev("document.getElementById('fifPatExcl').value") == defs.replace(", ", "\n") + "\n/xs/gen/**"
+              and ev("document.activeElement.id") == "fifPatExcl" and ev("fifIsOpen()")
+              and ev("+getComputedStyle(document.getElementById('fifPatBg')).zIndex > +getComputedStyle(document.getElementById('fifBg')).zIndex"))
+        page.keyboard.press("Control+A"); page.keyboard.type("/xs/gen/**\n*.map, *.lock")
+        page.click("#fifPatMask"); page.keyboard.type("*.js")
+        page.keyboard.press("Escape")
+        check("Esc cancels: dialog closed, nothing applied, Find in Files still open",
+              not ev("fifPatIsOpen()") and ev("fifIsOpen()") and ev("document.getElementById('fifExcl').value") == defs + ", /xs/gen/**")
+        page.click("#fifPatBtn"); page.wait_for_selector("#fifPatBg.show", timeout=3000)
+        page.keyboard.press("Control+A"); page.keyboard.type("/xs/gen/**\n*.map, *.lock")   # lines and commas both
+        page.click("#fifPatMask"); page.keyboard.type("*.js\n!*.min.js")
+        page.keyboard.press("Enter")
+        check("Enter in a multi-line box is a new line (the dialog stays)", ev("fifPatIsOpen()") and
+              ev("document.getElementById('fifPatMask').value") == "*.js\n!*.min.js\n")
+        page.keyboard.press("Control+Enter")
+        page.wait_for_function("!fifPatIsOpen() && _fifResults.map(r => r.path).join() === 'xs/app.js,xs/build/b.js'", timeout=8000)
         time.sleep(0.5)
-        check("edited excludes kept in the saved UI state", ev("STATE.fifOpts.exclude === '/xs/gen/**' && STATE.fifOpts.exclV === 2"))
+        check("Ctrl+Enter applies: searched with the new mask / excludes, saved, summary updated",
+              ev("STATE.fifOpts.exclude") == "/xs/gen/**, *.map, *.lock" and ev("STATE.fifOpts.glob") == "*.js, !*.min.js"
+              and ev("STATE.fifOpts.exclV") == 2
+              and ev("document.getElementById('fifPatBtn').textContent") == "mask: *.js, !*.min.js · exclude: 3"
+              and ev("document.activeElement.id") == "fifQ", str(ev("[STATE.fifOpts, _fifResults.map(r => r.path)]")))
         ev("closeFIF(); openFIF('xneedle')")
-        check("edited excludes come back when the dialog opens again", ev("document.getElementById('fifExcl').value") == "/xs/gen/**")
-        page.wait_for_function("_fifResults.length === 9", timeout=8000)
-        ev("document.getElementById('fifDefExcl').click()")
-        page.wait_for_function("_fifResults.length === 2", timeout=8000)
-        check("Defaults puts the default patterns back (button, says so in its tooltip)",
-              ev("document.getElementById('fifExcl').value") == defs and ev("STATE.fifOpts.exclude") == defs
-              and ev("document.getElementById('fifDefExcl').tagName") == "BUTTON"
-              and ev("document.getElementById('fifDefExcl').title").startswith("Defaults: put the default exclude patterns back"))
-        # real input: mouse click into the box, then keys (not a value set by script)
-        page.click("#fifExcl"); page.keyboard.press("End"); page.keyboard.type(", /xs/gen/**")
-        page.wait_for_function("_fifResults.length === 1", timeout=8000)
-        time.sleep(0.5)
-        check("exclude box: clicked and typed keys are taken, searched and saved",
-              ev("document.activeElement.id") == "fifExcl" and ev("STATE.fifOpts.exclude") == defs + ", /xs/gen/**")
-        check("exclude box: the grey text reads as an example, not as a value",
-              "e.g." in ev("document.getElementById('fifExcl').placeholder"))
-        ev("document.getElementById('fifDefExcl').click()")
-        page.wait_for_function("_fifResults.length === 2", timeout=8000)
+        check("applied patterns come back when the dialog opens again",
+              ev("document.getElementById('fifPatBtn').textContent") == "mask: *.js, !*.min.js · exclude: 3")
+        ev("flushState()"); time.sleep(0.6)
+        page.reload()
+        page.wait_for_function("typeof monaco !== 'undefined' && _stateReady", timeout=20000)
+        ev("openFIF('xneedle')")
+        check("after a restart (reload) the patterns are kept (state.json)",
+              ev("document.getElementById('fifExcl').value") == "/xs/gen/**, *.map, *.lock"
+              and ev("document.getElementById('fifGlob').value") == "*.js, !*.min.js")
+        page.click("#fifPatBtn"); page.wait_for_selector("#fifPatBg.show", timeout=3000)
+        page.click("#fifPatMask"); page.keyboard.press("Control+A"); page.keyboard.press("Delete")
+        page.click("#fifPatDefaults")
+        check("Defaults puts the default exclude patterns back in the dialog (applied with Apply; says so in its tooltip)",
+              ev("document.getElementById('fifPatExcl').value") == defs.replace(", ", "\n") and ev("fifPatIsOpen()")
+              and ev("document.getElementById('fifPatDefaults').title").startswith("Defaults: put the default exclude patterns back"))
+        page.click("#fifPatApply")
+        page.wait_for_function("!fifPatIsOpen() && _fifResults.map(r => r.path).join() === 'xs/app.js,xs/gen/g.js'", timeout=8000)
+        check("Apply button applies", ev("document.getElementById('fifExcl').value") == defs and ev("document.getElementById('fifGlob').value") == "")
+        page.click("#fifPatBtn"); page.wait_for_selector("#fifPatBg.show", timeout=3000)
+        page.click("#fifPatBg", position={"x": 5, "y": 5})
+        check("click outside the dialog cancels it; Find in Files stays", not ev("fifPatIsOpen()") and ev("fifIsOpen()"))
         ev("STATE.fifOpts = {exclude: 'foo/**', defExcl: true}; closeFIF(); openFIF('')")
         old_on = ev("document.getElementById('fifExcl').value")
         ev("STATE.fifOpts = {exclude: 'foo/**', defExcl: false}; closeFIF(); openFIF('')")
@@ -963,11 +991,11 @@ def main():
         vp = page.viewport_size
         page.set_viewport_size({"width": 640, "height": 600})
         fit = ev("""(() => { const row = document.getElementById('fifOpts').getBoundingClientRect();
-            return ['fifGlob', 'fifExcl', 'fifDefExcl', 'fifScope', 'fifReplToggle'].map(id => {
+            return ['fifPatBtn', 'fifScope', 'fifReplToggle'].map(id => {
               const e = document.getElementById(id), r = (e.type === 'checkbox' ? e.parentElement : e).getBoundingClientRect();
               return id + ':' + (r.width > 0 && r.left >= row.left - 1 && r.right <= row.right + 1 && r.bottom <= row.bottom + 1);
             }).join(' ') + ' overflow:' + (document.getElementById('fifOpts').scrollWidth > document.getElementById('fifOpts').clientWidth); })()""")
-        check("narrow window: mask, exclude and the Defaults button stay visible (the option row wraps)",
+        check("narrow window: the mask / exclude summary button stays visible (the option row wraps)",
               "false" not in fit.split(" overflow:")[0] and fit.endswith("overflow:false"), fit)
         page.set_viewport_size(vp)
         ev("closeFIF()")
@@ -994,8 +1022,8 @@ def main():
                  " u = document.querySelector('#qoBg .fd-tabs').getBoundingClientRect(); closeQO();"
                  " a.width > 0 && a.right <= t.right && t.right - a.right < 20 && b.width > 0 && b.right <= u.right && u.right - b.right < 20"))
         closes("In Files: ✕ closes, editor gets the keyboard", "openFIF('x')", lambda: page.click("#fifClose"))
-        closes("In Files: Esc in the exclude box closes", "openFIF('x'); document.getElementById('fifExcl').focus()",
-               lambda: page.keyboard.press("Escape"))
+        closes("In Files: Esc in the mask / exclude dialog closes it, Esc again closes Find in Files",
+               "openFIF('x'); openFIFPatterns()", lambda: (page.keyboard.press("Escape"), page.keyboard.press("Escape")))
         closes("In Files: Esc in the search box closes", "openFIF('x')", lambda: page.keyboard.press("Escape"))
         closes("In Files: Ctrl+Shift+F again closes", "openFIF('x')", lambda: page.keyboard.press("Control+Shift+F"))
         closes("In Files: click outside closes", "openFIF('x')", lambda: page.mouse.click(5, 300))

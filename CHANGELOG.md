@@ -123,12 +123,14 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
   `Items.vue` / `items.vue` before `ItemsSidebar.vue` and other loose matches from the recent files. The order is:
   exact names you opened before, other exact names, other recent files, the rest. A query with a path (`/`) keeps
   the old order.
-- Find in Files: the **exclude** box now holds the whole exclude list. It starts with the default patterns (the
-  search-ignored folders from Settings plus `.idea`, `.vs`, minified / bundled js and css, source maps, lock files,
-  `shelved.patch` …), can be edited freely and is kept between runs; **Defaults** is a button that puts the default
-  patterns back (it was an on / off switch for a list you could not see). Saved options carry over: with Defaults on,
-  the box gets the defaults plus your own patterns. Its grey hint text is now plainly an example
-  (`e.g. *.log, dist/**`); the old hint `.idea/**, *.patch, dist/**` looked like a value you could not edit.
+- Find in Files: **file mask and exclude are edited in their own dialog**. The option bar shows what is in use
+  (`mask: *.vue · exclude: 12`); click it to edit both lists, one pattern per line or comma-separated, with the
+  pattern rules under each box. Ctrl+Enter or Apply applies, Esc or Cancel leaves them as they were.
+  The exclude list is the whole list: it starts with the default patterns (the search-ignored folders from Settings
+  plus `.idea`, `.vs`, minified / bundled js and css, source maps, lock files, `shelved.patch` …) and is kept between
+  runs; **Defaults** puts the default patterns back (it was an on / off switch for a list you could not see, next to
+  a grey hint `.idea/**, *.patch, dist/**` that looked like a value). Saved options carry over: with Defaults on,
+  the list gets the defaults plus your own patterns.
 - The saved theme is applied before the page first paints (no light flash when ReadO starts in the dark theme).
 - Fixed: the toolbar theme button (icon only: moon in the light theme, sun in the dark one) showed the previous
   theme's icon right after a switch. It now changes with the theme and has an aria-label naming the current one.

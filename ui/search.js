@@ -18,6 +18,50 @@ function fifResetExcludes() {
   saveFIFOpts();
   runFIF();
 }
+// File mask and exclude are edited in their own dialog (#fifPatBg); the option
+// bar shows a summary button. The applied values live in the hidden #fifGlob /
+// #fifExcl, comma-separated, so saving and the search request are unchanged.
+function fifPatList(s) { return String(s || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean); }
+function updateFIFPatButton() {
+  const mask = fifPatList(document.getElementById('fifGlob').value);
+  const excl = fifPatList(document.getElementById('fifExcl').value);
+  const b = document.getElementById('fifPatBtn');
+  const m = mask.length ? mask.join(', ') : 'all files';
+  b.textContent = `mask: ${m.length > 28 ? m.slice(0, 27) + '…' : m} · exclude: ${excl.length}`;
+  b.title = 'file mask & exclude patterns — click to edit\nmask: ' + (mask.join(', ') || '(every text file)') +
+    '\nexclude: ' + (excl.join(', ') || '(nothing)');
+}
+function fifPatIsOpen() { return document.getElementById('fifPatBg').classList.contains('show'); }
+function openFIFPatterns() {
+  document.getElementById('fifPatMask').value = fifPatList(document.getElementById('fifGlob').value).join('\n');
+  document.getElementById('fifPatExcl').value = fifPatList(document.getElementById('fifExcl').value).join('\n');
+  document.getElementById('fifPatBg').classList.add('show');
+  document.getElementById('fifPatExcl').focus();
+}
+function closeFIFPatterns() {
+  if (!fifPatIsOpen()) return;
+  document.getElementById('fifPatBg').classList.remove('show');
+  if (fifIsOpen()) document.getElementById('fifQ').focus();
+}
+function fifPatDefaults() {
+  const t = document.getElementById('fifPatExcl');
+  t.value = (_settings.search_default_excludes || []).join('\n');
+  t.focus();
+}
+function applyFIFPatterns() {
+  document.getElementById('fifGlob').value = fifPatList(document.getElementById('fifPatMask').value).join(', ');
+  document.getElementById('fifExcl').value = fifPatList(document.getElementById('fifPatExcl').value).join(', ');
+  closeFIFPatterns();
+  _fifMax = 0;
+  saveFIFOpts();
+  runFIF();
+}
+document.getElementById('fifPatBg').addEventListener('keydown', e => {
+  if (e.key === 'Escape') { e.preventDefault(); closeFIFPatterns(); }
+  else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFIFPatterns(); }
+  else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON') { e.preventDefault(); applyFIFPatterns(); }
+  e.stopPropagation();  // keys typed here are not editor / app shortcuts
+});
 function restoreFIFOpts() {  // STATE.fifOpts: the option bar as it was last left
   const o = Object.assign({}, STATE.fifOpts && typeof STATE.fifOpts === 'object' ? STATE.fifOpts : {});
   if (o.exclV !== 2) {  // never saved, or saved by a build with the Defaults on/off toggle
@@ -32,6 +76,7 @@ function restoreFIFOpts() {  // STATE.fifOpts: the option bar as it was last lef
     else if (e.tagName === 'SELECT') { if ([...e.options].some(x => x.value === o[k])) e.value = o[k]; }
     else e.value = o[k];
   }
+  updateFIFPatButton();
 }
 function saveFIFOpts() {
   const o = {};
@@ -39,6 +84,7 @@ function saveFIFOpts() {
   o.exclV = 2;
   STATE.fifOpts = o;
   saveState();
+  updateFIFPatButton();
 }
 function openFIF(prefill) {
   closeQO();
@@ -85,6 +131,7 @@ function toggleFIFReplace(force) {
   }
 }
 function closeFIF() {
+  document.getElementById('fifPatBg').classList.remove('show');
   document.getElementById('fifBg').classList.remove('show');
 }
 // ✕, Esc, a click outside (and Ctrl+Shift+F again in Find in Files): close the
@@ -322,12 +369,6 @@ document.getElementById('fifQ').addEventListener('keydown', e => {
     }
   }
 });
-['fifGlob', 'fifExcl'].forEach(id => document.getElementById(id).addEventListener('input', () => {
-  if (_fifTimer) clearTimeout(_fifTimer);
-  _fifMax = 0;
-  _fifTimer = setTimeout(() => { saveFIFOpts(); runFIF(); }, 300);
-}));
-document.getElementById('fifDefExcl').addEventListener('click', fifResetExcludes);
 ['fifCase','fifWord','fifRegex','fifScope','fifCtx'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => { _fifMax = 0; saveFIFOpts(); runFIF(); });
 });

@@ -478,7 +478,7 @@ def find_dialog_tests(pg, ev, shot, base):
     ev("openFIF('')")
     check("needle 7" in ev("[...document.querySelectorAll('#fifResults .fd-recent')].map(r => r.dataset.q)"), "empty Find in Files: recent searches listed")
     pg.click("#fifOpts .fd-tg:has(#fifCase)")
-    pg.fill("#fifGlob", "*.txt")
+    pg.click("#fifPatBtn"); pg.fill("#fifPatMask", "*.txt"); pg.click("#fifPatApply")  # mask & exclude dialog
     time.sleep(0.6)
     check(ev("STATE.fifOpts && STATE.fifOpts.caseS === true && STATE.fifOpts.glob === '*.txt'"), "options: toggle bar state saved (Cc, file mask)")
     check(ev("document.getElementById('fifCase').checked && getComputedStyle(document.querySelector('#fifOpts .fd-tg:has(#fifCase)')).backgroundColor !== 'rgba(0, 0, 0, 0)'"),
@@ -491,7 +491,7 @@ def find_dialog_tests(pg, ev, shot, base):
     ev("openFIF('')")
     check(ev("document.getElementById('fifCase').checked && document.getElementById('fifGlob').value === '*.txt'"), "options kept after a restart")
     pg.click("#fifOpts .fd-tg:has(#fifCase)")
-    pg.fill("#fifGlob", "")
+    pg.click("#fifPatBtn"); pg.fill("#fifPatMask", ""); pg.click("#fifPatApply")
     time.sleep(0.5)
     server.SETTINGS["search_max_results"] = 10
     try:

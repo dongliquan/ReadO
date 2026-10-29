@@ -1592,6 +1592,19 @@ def main():
         want = {"dark": "#282c34", "light": "#ffffff"}
         check("theme change sends the window background color (dark #282c34 / light #ffffff)",
               calls == [want["light" if th0 == "dark" else "dark"], want[th0]], str(calls))
+        # theme button: icon only, and the icon follows the theme right after each toggle
+        def theme_btn():
+            return ev("""(() => { const b = document.getElementById('themeBtn');
+              return [getTheme(), b.textContent.trim(), b.querySelector('svg path, svg circle').tagName, b.getAttribute('aria-label')]; })()""")
+        b0 = theme_btn()
+        ev("document.getElementById('themeBtn').click()")
+        b1 = theme_btn()
+        ev("document.getElementById('themeBtn').click()")
+        b2 = theme_btn()
+        icon = {"light": "path", "dark": "circle"}  # moon in the light theme, sun in the dark one
+        check("theme button: no text, its icon and aria-label follow the theme at once",
+              all(b[1] == "" and b[2] == icon[b[0]] and b[3].startswith(b[0].capitalize() + " theme") for b in (b0, b1, b2))
+              and b1[0] != b0[0] and b2[0] == b0[0], f"{b0} {b1} {b2}")
         # --- tool window strip (Files / Outline / Git) and the folding sidebar ---
         ev("while (panes.length > 1) closePane(1)")
         ev("setSidebarOpen(true); setSideTab('files')")

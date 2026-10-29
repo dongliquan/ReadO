@@ -119,7 +119,8 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
 
 ## Unreleased
 
-Nothing yet.
+- Fixed: the toolbar theme button (icon only: moon in the light theme, sun in the dark one) showed the previous
+  theme's icon right after a switch. It now changes with the theme and has an aria-label naming the current one.
 
 ---
 

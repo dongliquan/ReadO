@@ -138,13 +138,13 @@ function getTheme() {
   return STATE.theme === 'dark' ? 'dark' : 'light';
 }
 function applyTheme(theme) {
+  STATE.theme = theme;  // first: refreshToolbar draws the toolbar icon from it
   document.body.classList.remove('theme-light', 'theme-dark');
   document.body.classList.add('theme-' + theme);
   try { refreshToolbar(); } catch (e) {}  // the toolbar code may not be loaded yet at the first call
   if (typeof monaco !== 'undefined' && monaco.editor) {
     monaco.editor.setTheme(theme === 'dark' ? 'one-dark' : 'one-light');
   }
-  STATE.theme = theme;
   syncWindowBackground();
 }
 // the window behind the page takes the theme color: maximizing / resizing shows it until the page repaints

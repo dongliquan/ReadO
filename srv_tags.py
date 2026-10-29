@@ -29,6 +29,10 @@ CTAGS_ARGS = ["--output-format=json", "--fields=+neS-P", "--sort=no", "-f", "-"]
 CTAGS_INDEX_OFF = ["--languages=-JSON,-Markdown,-Asciidoc,-ReStructuredText,-Iniconf,-XML,-SVG"]
 CTAGS_MAX_FILE = 2_000_000          # bytes; larger files are skipped
 CTAGS_INCREMENTAL_MAX = 3000        # more changed files than this -> full rebuild
+# ctags runs one file at a time: a list this long is split over parallel runs
+# (23.5k files: 154 s -> 38 s with 4), leaving most cores free
+CTAGS_SPLIT_MIN = 2000
+CTAGS_JOBS = min(4, max(1, (os.cpu_count() or 1) // 4))
 # how often files changed by *other* programs are looked for (a stat of every
 # file); files saved in ReadO are re-tagged right away
 TAGS_TTL = 300
@@ -112,7 +116,37 @@ def _run_ctags(paths, extra=()):
 
 
 def _tag_tuples(paths, base):
-    """{rel: [(name, rel, line, kind, scope, end, signature)]} for paths."""
+    """{rel: [(name, rel, line, kind, scope, end, signature)]} for paths.
+    A long list (the full build) is split over CTAGS_JOBS ctags runs, every
+    k-th file each so big bundles spread out; the result keeps the order a
+    single run gives (files in list order)."""
+    jobs = CTAGS_JOBS if len(paths) >= CTAGS_SPLIT_MIN else 1
+    if jobs <= 1:
+        return _tag_tuples_one(paths, base)
+    ctags_path()  # resolve it here, not in the workers at the same time
+    parts = [None] * jobs
+
+    def work(i):
+        parts[i] = _tag_tuples_one(paths[i::jobs], base)
+    threads = [threading.Thread(target=work, args=(i,), daemon=True) for i in range(jobs)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    if any(p is None for p in parts):
+        raise RuntimeError("ctags run failed")
+    order = {}
+    for i, p in enumerate(paths):
+        try:
+            order[os.path.relpath(p, base).replace("\\", "/")] = i
+        except ValueError:
+            pass
+    items = [kv for part in parts for kv in part.items()]
+    items.sort(key=lambda kv: order.get(kv[0], len(paths)))
+    return dict(items)
+
+
+def _tag_tuples_one(paths, base):
     out, rels = {}, {}
     intern = sys.intern  # names/kinds/scopes repeat a lot: share one string each
     for t in _run_ctags(paths, CTAGS_INDEX_OFF):

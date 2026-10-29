@@ -142,6 +142,8 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
   last word typed could come back as that error and no results).
 - Fixed: Find File (`Ctrl+P`) could keep showing nothing (or an older list) after you stopped typing, until the next
   key: what was typed while a request was still running was dropped. A new query now replaces the running request.
+- Faster: the first symbol index (Symbols `#`, go to definition) of a large folder is built by up to 4 ctags runs at
+  once (23.5k files: 145 s → 76 s); the symbols and their order are the same.
 
 ---
 

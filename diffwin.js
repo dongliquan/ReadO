@@ -14,18 +14,8 @@ function eolOf(t) {
   return crlf && !cr && !lf ? 'CRLF' : lf && !crlf && !cr ? 'LF' : cr && !crlf && !lf ? 'CR' : crlf + cr + lf ? 'mixed' : '';
 }
 const showCR = t => t.replace(/\r\n?/g, '␍\n');
-// theme mode as in the main window: light / dark / system (anything else; follows the OS live)
-const darkMQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
-const isDark = () => ST.theme === 'dark' || (ST.theme !== 'light' && !!(darkMQ && darkMQ.matches));
-let dark = isDark();
+const dark = ST.theme === 'dark';
 document.body.classList.add(dark ? 'theme-dark' : 'theme-light');
-if (darkMQ) darkMQ.addEventListener('change', () => {
-  if (isDark() === dark) return;
-  dark = !dark;
-  document.body.classList.remove('theme-light', 'theme-dark');
-  document.body.classList.add(dark ? 'theme-dark' : 'theme-light');
-  if (window.monaco) monaco.editor.setTheme(dark ? 'one-dark' : 'one-light');
-});
 const $ = s => document.querySelector(s);
 const head = $('.gdm-head'), msg = $('.gdm-msg');
 let idx = D.index || 0, ed = null, own = [], gen = 0, cur = null;

@@ -193,7 +193,6 @@ async function usageCount(symbol, key) {
 // ===== Toolbar: grouped, every button is a registry command =====
 function renderToolbarTitles() {
   document.querySelectorAll('#tbGroups [data-cmd]').forEach(b => {
-    if (b.id === 'themeBtn') return;  // names the current mode: refreshToolbar
     const c = CMD.get(b.dataset.cmd);
     if (c) b.title = c.title.replace(/…$/, '') + (c.keys ? ` (${c.keys})` : '');
   });
@@ -207,16 +206,11 @@ function refreshToolbar() {
   const lbl = document.querySelector('#editBtn .lbl');
   if (lbl) lbl.textContent = STATE.editMode ? 'Editing' : 'Edit';
   const tb = document.getElementById('themeBtn');
-  if (tb && TB_ICONS) {
-    const m = getThemeMode();
-    tb.innerHTML = TB_ICONS[m] + `<span class="lbl">${THEME_LABEL[m]}</span>`;
-    tb.title = `Theme: ${THEME_LABEL[m]} — click to switch (Light → Dark → System)`;
-  }
+  if (tb && TB_ICONS) tb.innerHTML = getTheme() === 'dark' ? TB_ICONS.sun : TB_ICONS.moon;
 }
 var TB_ICONS = {  // var: refreshToolbar may run before this line (theme / edit mode at startup)
-  system: '<svg viewBox="0 0 16 16" width="15" height="15"><rect x="1.5" y="2.5" width="13" height="8.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M5.5 14h5M8 11v3" stroke="currentColor" stroke-width="1.3"/></svg>',
-  light: '<svg viewBox="0 0 16 16" width="15" height="15"><circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M13 3l-1.4 1.4M4.4 11.6L3 13" stroke="currentColor" stroke-width="1.3"/></svg>',
-  dark: '<svg viewBox="0 0 16 16" width="15" height="15"><path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>',
+  sun: '<svg viewBox="0 0 16 16" width="15" height="15"><circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M13 3l-1.4 1.4M4.4 11.6L3 13" stroke="currentColor" stroke-width="1.3"/></svg>',
+  moon: '<svg viewBox="0 0 16 16" width="15" height="15"><path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>',
 };
 function toolbarOverflowMenu(e) {
   const r = e.currentTarget.getBoundingClientRect();

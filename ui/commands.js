@@ -83,10 +83,6 @@ const COMMANDS = [
   { id: 'view.zoomOut', cat: 'View', title: 'Font Size Smaller', keys: 'Ctrl+-', bind: ['Ctrl+-'], run: () => zoomFont(-1) },
   { id: 'view.zoomReset', cat: 'View', title: 'Font Size Reset', keys: 'Ctrl+0', bind: ['Ctrl+0'], run: () => zoomFont(0) },
   { id: 'view.theme', cat: 'View', title: 'Dark Theme', run: () => toggleTheme(), checked: () => getTheme() === 'dark' },
-  { id: 'view.themeLight', cat: 'View', title: 'Theme: Light', menuTitle: 'Light', run: () => setThemeMode('light'), checked: () => getThemeMode() === 'light' },
-  { id: 'view.themeDark', cat: 'View', title: 'Theme: Dark', menuTitle: 'Dark', run: () => setThemeMode('dark'), checked: () => getThemeMode() === 'dark' },
-  { id: 'view.themeSystem', cat: 'View', title: 'Theme: System', menuTitle: 'System', run: () => setThemeMode('system'), checked: () => getThemeMode() === 'system' },
-  { id: 'view.themeCycle', cat: 'View', title: 'Switch Theme (Light → Dark → System)', run: () => cycleTheme() },
   // Go
   { id: 'go.file', cat: 'Go', title: 'Go to File…', keys: 'Ctrl+P', bind: ['Ctrl+P', 'Ctrl+Shift+N'], capture: true, global: true, run: () => fifIsOpen() ? fdSwitch('files', fdTerm()) : openQO('') },
   { id: 'go.symbolFolder', cat: 'Go', title: 'Go to Symbol in Folder…', keys: 'Ctrl+T', bind: ['Ctrl+T', 'Ctrl+Shift+Alt+N'], run: () => openQO('#') },
@@ -217,8 +213,7 @@ const MENUS = [
       'layout.splitRight', 'layout.splitDown', 'layout.closePane'] },
     { label: 'Pane', items: ['pane.focus1', 'pane.focus2', 'pane.focus3', 'pane.focus4', '-', 'pane.left', 'pane.right', 'pane.up', 'pane.down', '-',
       'pane.moveNext', 'pane.movePrev'] },
-    '-', 'view.collapseAll', '-', 'view.wrap', 'view.minimap', 'view.whitespace', 'view.markdown',
-    { label: 'Theme', items: ['view.themeLight', 'view.themeDark', 'view.themeSystem'] }, '-',
+    '-', 'view.collapseAll', '-', 'view.wrap', 'view.minimap', 'view.whitespace', 'view.markdown', 'view.theme', '-',
     'view.zoomIn', 'view.zoomOut', 'view.zoomReset'] },
   { label: 'Go', items: ['go.file', 'go.symbolFolder', 'go.symbolFile', 'go.line', '-', 'go.definition', 'go.definitionHere', 'go.peek',
     'go.usages', '-', 'go.back', 'go.forward', '-', 'view.nextTab', 'view.prevTab'] },
@@ -279,7 +274,7 @@ function menuDropdown(items, x, y, level) {
       if (!c || (c.desktop && !isDesktop())) continue;
       row.dataset.cmd = c.id;
       row.disabled = !cmdEnabled(c);
-      row.innerHTML = `<span class="menu-label">${escapeHtml(c.menuTitle || c.title)}</span>`
+      row.innerHTML = `<span class="menu-label">${escapeHtml(c.title)}</span>`
         + (c.checked && c.checked() ? '<span class="menu-check">✓</span>' : '')
         + (c.keys ? `<span class="menu-acc">${escapeHtml(c.keys)}</span>` : '');
       row.addEventListener('mouseenter', () => menuDropdownClose(level + 1, box));

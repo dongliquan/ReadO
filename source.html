@@ -14,14 +14,6 @@
 <link rel="stylesheet" href="/app/git.css">
 </head>
 <body>
-<script>
-// theme before first paint (the saved mode is injected as READO_STATE); applyTheme in ui/editor.js takes over
-(function () {
-  var m = (window.READO_STATE || {}).theme;
-  var dark = m === 'dark' || (m !== 'light' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.body.classList.add(dark ? 'theme-dark' : 'theme-light');
-})();
-</script>
 
 <div class="titlebar" id="titlebar">
   <img class="tb-logo" src="/favicon.ico" alt="" draggable="false" onerror="this.replaceWith(Object.assign(document.createElement('span'), {className: 'tb-logo dot'}))" />
@@ -54,7 +46,7 @@
     </div>
     <span class="tbsep"></span>
     <div class="tbg" data-group="prefs">
-      <button class="tbtn" id="themeBtn" data-cmd="view.themeCycle"></button>
+      <button class="tbtn" id="themeBtn" data-cmd="view.theme"></button>
     </div>
   </div>
   <button class="tbtn tb-more" id="tbMore" title="more" onclick="toolbarOverflowMenu(event)">⋯</button>

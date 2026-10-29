@@ -723,7 +723,7 @@ class DiffWindowBackend:
         g = self._place()
         w = webview.create_window(title=title, url=f"http://{HOST}:{PORT}{path}", width=g["w"], height=g["h"],
                                   x=g.get("x"), y=g.get("y"), min_size=(500, 320), focus=True,
-                                  background_color="#282c34" if (server.ui_state().get("theme") == "dark") else "#ffffff")
+                                  background_color=theme_background())
 
         def closed():
             if w in self.open:
@@ -757,10 +757,26 @@ class DiffWindowBackend:
         raise_window(self.main)
 
 
-def theme_background():
-    """The page background of the saved theme (source.html: --panel)."""
+def os_dark():
+    """Windows apps are set to dark (Settings > Personalization > Colors)."""
+    if os.name != "nt":
+        return False
     try:
-        return "#282c34" if server.ui_state().get("theme") == "dark" else "#ffffff"
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
+            return winreg.QueryValueEx(k, "AppsUseLightTheme")[0] == 0
+    except OSError:
+        return False
+
+
+def theme_background():
+    """The page background of the saved theme (source.html: --panel). Theme light,
+    dark or system (anything else; default): system follows the Windows setting."""
+    try:
+        mode = server.ui_state().get("theme")
+        dark = mode == "dark" or (mode != "light" and os_dark())
+        return "#282c34" if dark else "#ffffff"
     except Exception:
         return "#ffffff"
 

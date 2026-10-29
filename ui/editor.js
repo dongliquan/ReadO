@@ -134,19 +134,40 @@ function applyLangDiagnostics() {
   if (off) monaco.editor.getModels().forEach(m => ['typescript', 'javascript'].forEach(o => monaco.editor.setModelMarkers(m, o, [])));
 }
 
-function getTheme() {
-  return STATE.theme === 'dark' ? 'dark' : 'light';
+// Theme (xO common spec, ch. 3): STATE.theme is the chosen mode — light, dark or
+// system (default; follows the OS live). body.theme-light / theme-dark carry the
+// resolved one, which getTheme() returns.
+const THEME_MODES = ['light', 'dark', 'system'];
+const THEME_LABEL = { light: 'Light', dark: 'Dark', system: 'System' };
+const _darkMQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+function getThemeMode() {
+  return THEME_MODES.includes(STATE.theme) ? STATE.theme : 'system';
 }
-function applyTheme(theme) {
+function getTheme() {
+  const m = getThemeMode();
+  return m === 'dark' || (m === 'system' && _darkMQ && _darkMQ.matches) ? 'dark' : 'light';
+}
+// mode: light / dark / system (anything else counts as system)
+function applyTheme(mode) {
+  STATE.theme = THEME_MODES.includes(mode) ? mode : 'system';
+  const theme = getTheme();
   document.body.classList.remove('theme-light', 'theme-dark');
   document.body.classList.add('theme-' + theme);
   try { refreshToolbar(); } catch (e) {}  // the toolbar code may not be loaded yet at the first call
   if (typeof monaco !== 'undefined' && monaco.editor) {
     monaco.editor.setTheme(theme === 'dark' ? 'one-dark' : 'one-light');
   }
-  STATE.theme = theme;
   syncWindowBackground();
 }
+function setThemeMode(mode) {
+  applyTheme(mode);
+  saveState();
+}
+// toolbar button: Light → Dark → System
+function cycleTheme() {
+  setThemeMode(THEME_MODES[(THEME_MODES.indexOf(getThemeMode()) + 1) % THEME_MODES.length]);
+}
+if (_darkMQ) _darkMQ.addEventListener('change', () => { if (getThemeMode() === 'system') applyTheme('system'); });
 // the window behind the page takes the theme color: maximizing / resizing shows it until the page repaints
 function syncWindowBackground() {
   const api = window.pywebview && window.pywebview.api;
@@ -160,7 +181,7 @@ function toggleTheme() {
   saveState();
 }
 // Apply saved UI state immediately (before Monaco loads)
-applyTheme(getTheme());
+applyTheme(getThemeMode());
 applyEditButton();
 if (STATE.sidebarWidth) document.getElementById('sidebar').style.width = STATE.sidebarWidth + 'px';
 if (STATE.sideCollapsed) document.body.classList.add('side-collapsed');

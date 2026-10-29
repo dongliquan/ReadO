@@ -28,7 +28,7 @@ WORK = os.environ.get("READO_TEST_WORK") or os.path.join(tempfile.gettempdir(), 
 BASE = os.path.join(WORK, "base")
 OUT = os.path.join(WORK, "outside")
 CFG = os.path.join(WORK, "cfg")
-PORT = 8799
+PORT = int(os.environ.get("READO_TEST_PORT") or 8799)  # another app may hold 8799
 
 sys.path.insert(0, REPO)
 import server  # noqa: E402
@@ -1592,6 +1592,60 @@ def main():
         want = {"dark": "#282c34", "light": "#ffffff"}
         check("theme change sends the window background color (dark #282c34 / light #ffffff)",
               calls == [want["light" if th0 == "dark" else "dark"], want[th0]], str(calls))
+        # --- theme: light / dark / system (xO common spec) ---
+        def body_theme():
+            return ev("[...document.body.classList].filter(c => c.startsWith('theme-')).join(' ')")
+        ev("setThemeMode('system')")
+        page.emulate_media(color_scheme="dark")
+        page.wait_for_function("document.body.classList.contains('theme-dark')", timeout=3000)
+        check("system: follows the OS going dark at once (body, Monaco, window background)",
+              ev("[getThemeMode(), getTheme(), window._bgCalls[window._bgCalls.length - 1]]") == ["system", "dark", "#282c34"]
+              and body_theme() == "theme-dark", body_theme())
+        page.emulate_media(color_scheme="light")
+        page.wait_for_function("document.body.classList.contains('theme-light')", timeout=3000)
+        check("system: and back to light", body_theme() == "theme-light" and ev("getThemeMode()") == "system")
+        page.emulate_media(color_scheme="dark")
+        page.wait_for_function("document.body.classList.contains('theme-dark')", timeout=3000)
+        seen = []
+        for _ in range(3):
+            ev("document.getElementById('themeBtn').click()")
+            seen.append(ev("[getThemeMode(), document.querySelector('#themeBtn .lbl').textContent, !!document.querySelector('#themeBtn svg')]") + [body_theme()])
+        check("toolbar button cycles Light -> Dark -> System, icon + label of the mode",
+              seen == [["light", "Light", True, "theme-light"], ["dark", "Dark", True, "theme-dark"],
+                       ["system", "System", True, "theme-dark"]], str(seen))
+        check("toolbar button title names the mode", ev("document.getElementById('themeBtn').title").startswith("Theme: System"))
+        page.emulate_media(color_scheme="light")
+        ev("setThemeMode('dark')")
+        page.emulate_media(color_scheme="light")
+        check("dark chosen: the OS setting no longer matters", body_theme() == "theme-dark")
+        time.sleep(1.3)  # saveState is debounced (800 ms)
+        check("chosen mode is saved in state.json (ui.theme)", server.ui_state().get("theme") == "dark", str(server.ui_state().get("theme")))
+        ev("menuDropdown(MENUS.find(m => m.label === 'View').items.find(i => i.label === 'Theme').items, 20, 20, 5)")
+        rows = ev("[...document.querySelectorAll('.menu-dropdown[data-level=\"5\"] .menu-row')].map(r => [r.querySelector('.menu-label').textContent, !!r.querySelector('.menu-check')])")
+        check("View > Theme submenu: Light / Dark / System, the current one checked",
+              rows == [["Light", False], ["Dark", True], ["System", False]], str(rows))
+        ev("document.querySelector('.menu-dropdown[data-level=\"5\"] .menu-row:nth-child(3)').click()")
+        check("submenu row switches the mode", ev("getThemeMode()") == "system" and body_theme() == "theme-light")
+        ev("closeMenuBar()")
+        # before first paint: the served page applies the saved mode right after <body>, before any other script
+        html = ev("fetch('/').then(r => r.text())")
+        body_at = html.find("<body>")
+        first_script = html.find("<script", body_at)
+        pre = html[first_script:html.find("</script>", first_script)].split(">", 1)[1]
+        check("pre-paint theme script is the first thing in <body>",
+              body_at > 0 and html[body_at + 6:first_script].strip() == "" and "theme-dark" in pre, html[body_at:body_at + 120])
+        p3 = ctx.new_page()
+        got = []
+        for scheme, mode in (("dark", None), ("dark", "system"), ("dark", "light"), ("light", "dark"), ("light", "bogus")):
+            p3.emulate_media(color_scheme=scheme)
+            p3.set_content("<html><head></head><body></body></html>")
+            got.append(p3.evaluate("([st, src]) => { window.READO_STATE = st; (0, eval)(src); return document.body.className; }",
+                                   [{"theme": mode} if mode else {}, pre]))
+        p3.close()
+        check("pre-paint script: none / system follow the OS, light / dark win, unknown = system",
+              got == ["theme-dark", "theme-dark", "theme-light", "theme-dark", "theme-light"], str(got))
+        page.emulate_media(color_scheme="light")
+        ev("setThemeMode('light')")
         # --- tool window strip (Files / Outline / Git) and the folding sidebar ---
         ev("while (panes.length > 1) closePane(1)")
         ev("setSidebarOpen(true); setSideTab('files')")

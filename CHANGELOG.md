@@ -119,7 +119,13 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
 
 ## Unreleased
 
-Nothing yet.
+### Theme
+
+- **Light, Dark or System** (the shared xO scheme). System is the default and follows the Windows setting as soon as
+  it changes. The toolbar button shows the current mode (icon + name) and steps Light → Dark → System; the View menu
+  has **Theme › Light / Dark / System**. A theme chosen before stays as it was.
+- The saved mode is applied before the page first paints, and the window behind it (main window and diff windows)
+  takes the matching colour, so there is no white flash in the dark theme — also in System mode.
 
 ---
 

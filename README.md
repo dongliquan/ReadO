@@ -227,7 +227,7 @@ no project setup, works offline.
 - **Tabs, up to 4 editor panes** — layouts from the ▥ button (single · two / three columns · two rows · 2×2 grid),
   split right / down (`Ctrl+\` / `Ctrl+Alt+\`), drag the borders to resize; each pane has its own tabs, the same file
   in several panes shares one buffer. Drag a tab to another pane (Ctrl: copy) or right-click it (split / move / copy)
-- Markdown preview (sanitized), light / dark theme, status bar
+- Markdown preview (sanitized), light / dark / system theme (system follows Windows), status bar
 - **Session restore** — open tabs, pane layout and sizes, cursor, theme, recent files / folders / searches
 - **Fully offline** — Monaco, marked, webfonts, ripgrep and ctags are bundled
 

@@ -218,7 +218,8 @@ def setup():
     w(os.path.join(p, ".gitignore"), "build/\n")
     w(os.path.join(p, ".git", "config"), "[core]\n")
     w(os.path.join(p, "doc", "guide.md"), "# Guide\n")
-    for name in ("Widgets.vue", "sub/widgets.vue", "WidgetsSidebar.vue", "AboutUsWidgets.vue"):  # Find File order
+    for name in ("Widgets.vue", "sub/widgets.vue", "WidgetsSidebar.vue", "AboutUsWidgets.vue",  # Find File order
+                 "deep/deeper/widgets.vue", "a_widgets.vue", "b_widgets.vue", "c_widgets.vue", "d_widgets.vue", "e_widgets.vue"):
         w(os.path.join(p, "qo", *name.split("/")), "<template><div/></template>\n")
     w(os.path.join(p, "doc", "pics.md"),
       "# Pics\n\n![ok](img/dot.png) ![up](../logo.png) ![out](../../../outside.png)"
@@ -1000,11 +1001,21 @@ def main():
             return ev("_qoItems.map(i => i.path)")
         got = qo_paths("widgets.vue")
         check("Find File: exact file names (any case) first, in their order; recent loose matches after them",
-              got[:4] == ["proj/qo/sub/widgets.vue", "proj/qo/Widgets.vue", "proj/qo/WidgetsSidebar.vue", "proj/qo/AboutUsWidgets.vue"],
-              str(got))
+              got[0] == "proj/qo/sub/widgets.vue" and set(got[1:3]) == {"proj/qo/Widgets.vue", "proj/qo/deep/deeper/widgets.vue"}
+              and got[3] == "proj/qo/WidgetsSidebar.vue", str(got))
         got = qo_paths("qo/widgets.vue")
         check("Find File: a query with a path keeps the old order (recent matches first)",
-              got[-1] == "proj/qo/Widgets.vue" and set(got[:-1]) == {"proj/qo/WidgetsSidebar.vue", "proj/qo/sub/widgets.vue"}, str(got))
+              set(got[:2]) == {"proj/qo/WidgetsSidebar.vue", "proj/qo/sub/widgets.vue"} and "proj/qo/Widgets.vue" in got[2:], str(got))
+        # manager's order: 1 exact+recent, 2 exact (server order), 3 other recent, 4 the rest; a recent exact
+        # name is kept even when 5 closer loose matches are recent too
+        ev("STATE.recent = ['proj/qo/a_widgets.vue', 'proj/qo/b_widgets.vue', 'proj/qo/c_widgets.vue', 'proj/qo/d_widgets.vue',"
+           " 'proj/qo/e_widgets.vue', 'proj/qo/deep/deeper/widgets.vue']")
+        qo_paths("widgets.vue")
+        it = ev("_qoItems.map(i => [i.path, i.meta === 'recent', /(^|\\/)widgets\\.vue$/i.test(i.path)])")
+        rank = [0 if r and e else 1 if e else 2 if r else 3 for _, r, e in it]
+        check("Find File: exact+recent, exact, other recent, rest (in that order)",
+              it[0][:2] == ["proj/qo/deep/deeper/widgets.vue", True] and rank == sorted(rank)
+              and rank.count(1) == 2 and rank.count(2) == 4, str(it))
         ev("closeQO(); STATE.recent = window._recent0")
         ev("openSettings()")
         page.wait_for_selector("#settingsBg.show")

@@ -120,8 +120,9 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
 ## Unreleased
 
 - Find File (`Ctrl+P`): files named exactly like what you typed (any case) come first — `items.vue` lists every
-  `Items.vue` / `items.vue` before `ItemsSidebar.vue` and other loose matches from the recent files. A query with a
-  path (`/`) keeps the old order.
+  `Items.vue` / `items.vue` before `ItemsSidebar.vue` and other loose matches from the recent files. The order is:
+  exact names you opened before, other exact names, other recent files, the rest. A query with a path (`/`) keeps
+  the old order.
 - Find in Files: the **exclude** box now holds the whole exclude list. It starts with the default patterns (the
   search-ignored folders from Settings plus `.idea`, `.vs`, minified / bundled js and css, source maps, lock files,
   `shelved.patch` …), can be edited freely and is kept between runs; **Defaults** is a button that puts the default

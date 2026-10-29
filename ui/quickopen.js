@@ -80,9 +80,12 @@ async function runQO() {
   _qoMode = 'file';
   _qoQuery = raw;
   _qoOffset = 0;
-  // recently opened files that match come first
-  _qoItems = STATE.recent.map(k => ({ k, m: fuzzyMatch(raw, k) })).filter(x => x.m)
-    .sort((a, b) => b.m.score - a.m.score).slice(0, 5)
+  // recently opened files that match come first (exact file names before the
+  // cut to 5, so a recent Items.vue is not pushed out by loose matches)
+  const qName = raw.trim().toLowerCase(), byName = !/[\\/]/.test(qName);
+  const isExact = k => byName && baseName(k).toLowerCase() === qName;
+  _qoItems = STATE.recent.map(k => ({ k, m: fuzzyMatch(raw, k), e: isExact(k) })).filter(x => x.m)
+    .sort((a, b) => (b.e - a.e) || (b.m.score - a.m.score)).slice(0, 5)
     .map(x => ({ label: x.k, path: x.k, indices: x.m.indices, meta: 'recent' }));
   _qoItems = qoExactNameFirst(_qoItems, raw);
   _qoSel = 0;

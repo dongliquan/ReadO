@@ -1054,6 +1054,25 @@ def main():
         check("Find File: exact+recent, exact, other recent, rest (in that order)",
               it[0][:2] == ["proj/qo/deep/deeper/widgets.vue", True] and rank == sorted(rank)
               and rank.count(1) == 2 and rank.count(2) == 4, str(it))
+        # keys typed while a slow /api/files request runs (big folder, cold index) are not dropped:
+        # the list ends with the results for the whole query, not the recent files of a prefix
+        ev("closeQO(); STATE.recent = []")
+        find_files0 = server.find_files
+        server.find_files = lambda q, *a: (time.sleep(1.5) if q == "widg" else None, find_files0(q, *a))[1]
+        try:
+            ev("openQO('')")
+            page.keyboard.type("widg"); time.sleep(0.4)      # its request is now in flight
+            page.keyboard.type("ets.vue")
+            try:
+                page.wait_for_function("!_qoLoading && _qoQuery === 'widgets.vue' && _qoItems.some(i => i.path === 'proj/qo/Widgets.vue')",
+                                       timeout=6000)
+                ok = True
+            except Exception:
+                ok = False
+            check("Find File: keys typed while a slow request runs still give the results of the whole query", ok,
+                  str(ev("[_qoQuery, _qoLoading, _qoItems.map(i => i.path)]")))
+        finally:
+            server.find_files = find_files0
         ev("closeQO(); STATE.recent = window._recent0")
         ev("openSettings()")
         page.wait_for_selector("#settingsBg.show")

@@ -539,15 +539,21 @@ def _gi_on():
     return bool(SETTINGS.get("respect_gitignore"))
 
 
+_WIN_DEVICE_NAMES = frozenset(["CON", "PRN", "AUX", "NUL"] + [f"{p}{i}" for p in ("COM", "LPT") for i in range(1, 10)])
+
+
 def _walk_files(base, search_excluded=True):
     """Relative paths of every visible text file under base (os.walk order).
     search_excluded=False keeps what settings.search_ignored leaves out."""
     out = []
-    stack = [base]
+    # (folder, its path relative to base + "/"): the relative path is built by
+    # concatenation, not os.path.relpath per file (that was ~40% of a walk)
+    stack = [(base, "")]
     gi = _gi_on()
     gi_memo, gi_root = {}, (_gi_repo_root(base) if gi else None)
+    ign, sign = _filters()
     while stack:
-        top = stack.pop()
+        top, rel_top = stack.pop()
         try:
             it = os.scandir(top)
         except OSError:
@@ -562,20 +568,22 @@ def _walk_files(base, search_excluded=True):
                     continue
                 if is_dir:
                     # like os.walk(followlinks=False): list symlinked dirs, don't descend
-                    if not _is_ignored(name) and not (search_excluded and _is_search_ignored(name)) and not e.is_symlink() \
-                            and not (gi and gitignored(e.path, True, gi_memo, gi_root)):
-                        subdirs.append(e.path)
+                    if not _name_match(ign, name) and not (search_excluded and _name_match(sign, name)) \
+                            and not e.is_symlink() and not (gi and gitignored(e.path, True, gi_memo, gi_root)):
+                        subdirs.append((e.path, rel_top + name + "/"))
                     continue
                 if e.is_symlink():
                     continue
-                if _is_ignored(name) or (search_excluded and _is_search_ignored(name)) or not _is_text_file(name):
+                if _name_match(ign, name) or (search_excluded and _name_match(sign, name)) or not _is_text_file(name):
                     continue
                 if gi and gitignored(e.path, False, gi_memo, gi_root):
                     continue
-                try:
-                    out.append(os.path.relpath(e.path, base).replace("\\", "/"))
-                except ValueError:
-                    continue
+                if os.name == "nt" and name.split(".", 1)[0].upper() in _WIN_DEVICE_NAMES:
+                    try:  # "nul" etc. resolve to \\.\nul: left out, as relpath always did
+                        os.path.relpath(e.path, base)
+                    except ValueError:
+                        continue
+                out.append(rel_top + name)
         stack.extend(reversed(subdirs))
     return out
 
@@ -615,6 +623,19 @@ def _ensure_index():
             _index.update(base=base, files=files, built=time.time(), building=False,
                           version=_index["version"] + 1)
         return files
+
+
+def prewarm_index():
+    """Folder opened / settings saved: build the file list in the background so the
+    first Find File doesn't wait for the walk (the symbol index does this too, but
+    only when ctags is available)."""
+    base = base_root()
+    if base is None:
+        return
+    with _index_lock:
+        if _index["base"] == base:
+            return
+    threading.Thread(target=_ensure_index, daemon=True).start()
 
 
 def _index_reset():
@@ -1316,6 +1337,7 @@ def api_save_settings(data):
     _index_reset()
     with _tags_lock:
         _tags["checked"] = 0.0  # symbol index re-checks its file list
+    prewarm_index()
     ensure_tags()
     return settings_status()
 
@@ -1697,6 +1719,7 @@ class Handler(BaseHTTPRequestHandler):
                 limit = 100
             self._send(200, search_symbols(q.get("q", ""), q.get("cat", ""), limit))
         elif u.path == "/api/tags-status":
+            prewarm_index()
             self._send(200, ensure_tags())
         elif u.path == "/api/files":
             try:

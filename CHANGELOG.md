@@ -123,6 +123,10 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
   `Items.vue` / `items.vue` before `ItemsSidebar.vue` and other loose matches from the recent files. The order is:
   exact names you opened before, other exact names, other recent files, the rest. A query with a path (`/`) keeps
   the old order.
+- Recent files and recent folders that are gone (deleted, or their folder removed) leave the lists — Find File's
+  recent files, the start screen and the saved state. One check for all of them at start, when a folder opens and
+  when Find File opens (at most every 30 s); opening a recent file that is gone drops it at once. A drive that does
+  not answer in time (network share) is left alone: nothing is hidden or dropped for it.
 - Find in Files: **file mask and exclude are edited in their own dialog**. The option bar shows what is in use
   (`mask: *.vue · exclude: 12`); click it to edit both lists, one pattern per line or comma-separated, with the
   pattern rules under each box. Ctrl+Enter or Apply applies, Esc or Cancel leaves them as they were.

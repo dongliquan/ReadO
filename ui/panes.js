@@ -761,6 +761,7 @@ async function openFileInPane(paneIdx, path, gotoLine, find, opts) {
       if (doc && doc.model.isDisposed()) doc = await loadDoc(path);
     } catch (e) {
       if (!opts.quiet) showToast(e.message, true);
+      forgetIfGone(path);
       return false;
     }
     if (!doc) {

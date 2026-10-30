@@ -76,6 +76,7 @@ async function openFolder(path) {
   }
   if (!data.base_dir_exists) {
     showToast('folder not found: ' + path, true);
+    pruneRecent(true).then(changed => { if (changed) updateStartScreen(); });
     if (prev && prev !== path) {  // keep the previous folder
       await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ base_dir: prev }) }).catch(() => {});
@@ -100,6 +101,7 @@ async function openFolder(path) {
   await loadTree('', document.getElementById('tree'));
   loadProjects();
   updateStartScreen();
+  pruneRecent(true).then(changed => { if (changed) updateStartScreen(); });
   if (typeof onFolderOpened === 'function') onFolderOpened();
   refreshGitAvail();
   return true;
@@ -128,6 +130,7 @@ async function bootstrap() {
   await monacoReady;
   await restoreSession();
   updateStartScreen();
+  pruneRecent(true).then(changed => { if (changed) updateStartScreen(); });
   reportDirty();
   pollChanges();  // also opens files passed on the command line
   setInterval(pollChanges, 2500);

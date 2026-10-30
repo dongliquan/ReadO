@@ -20,6 +20,8 @@ function openQO(prefill) {
   if (prefill === '#' || prefill === '@' || prefill === ':' || prefill === '>' || prefill === '%') inp.setSelectionRange(1, 1); else inp.select();
   updateQOChrome();
   runQO();
+  // recent files that are gone leave the list (a deleted folder's files, …)
+  pruneRecent().then(changed => { if (changed && qoIsOpen() && _qoMode === 'file') runQO(); });
 }
 function closeQO() {
   document.getElementById('qoBg').classList.remove('show');

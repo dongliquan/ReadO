@@ -46,6 +46,40 @@ function addRecent(key) {
   STATE.recent = [key].concat(STATE.recent.filter(k => k !== key)).slice(0, 30);
   saveState();
 }
+// Recent files / folders that are gone (deleted, or their folder removed) are
+// dropped: one /api/exists batch, at most every 30 s unless forced. The server
+// leaves out what it cannot tell (slow or unreachable drive), and that stays.
+// Resolves true when something was dropped.
+let _pruneAt = 0, _pruning = null;
+function existsBatch(files, dirs) {
+  return fetch('/api/exists', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ files, dirs }),
+  }).then(r => r.ok ? r.json() : null).catch(() => null);
+}
+function pruneRecent(force) {
+  if (_pruning) return _pruning;
+  if (!force && Date.now() - _pruneAt < 30000) return Promise.resolve(false);
+  _pruneAt = Date.now();
+  _pruning = existsBatch(STATE.recent, STATE.recentFolders || []).then(d => {
+    if (!d) return false;
+    const n0 = STATE.recent.length + (STATE.recentFolders || []).length;
+    STATE.recent = STATE.recent.filter(k => d.files[k] !== false);
+    if (STATE.recentFolders) STATE.recentFolders = STATE.recentFolders.filter(p => d.dirs[p] !== false);
+    const changed = STATE.recent.length + (STATE.recentFolders || []).length !== n0;
+    if (changed) saveState();
+    return changed;
+  }).finally(() => { _pruning = null; });
+  return _pruning;
+}
+// opening a recent file failed: drop it when it is really gone
+async function forgetIfGone(key) {
+  const d = await existsBatch([key], []);
+  if (!d || d.files[key] !== false) return false;
+  STATE.recent = STATE.recent.filter(k => k !== key);
+  saveState();
+  return true;
+}
 
 // === Documents: one Monaco model per file, shared by both panes ===
 // doc: { key, model, isMarkdown, mtime, encoding, bom, readonly (reason|null),

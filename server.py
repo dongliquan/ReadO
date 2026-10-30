@@ -1423,9 +1423,9 @@ def _recycle(full):
     return rc == 0 and not op.fAnyOperationsAborted and not os.path.lexists(full)
 
 from srv_fileops import (  # noqa: E402,F401
-    REPLACE_MAX_FILES, REPLACE_SAMPLES, _bad_name, _make_replacer, _replace_candidates,
-    _replace_plan, _replace_query, _tree_changed, api_delete, api_link, api_mkdir, api_outline,
-    api_rename, api_replace_apply, api_replace_preview, resolve_fs_target,
+    EXISTS_BUDGET, EXISTS_MAX, REPLACE_MAX_FILES, REPLACE_SAMPLES, _bad_name, _make_replacer,
+    _replace_candidates, _replace_plan, _replace_query, _tree_changed, api_delete, api_exists, api_link,
+    api_mkdir, api_outline, api_rename, api_replace_apply, api_replace_preview, resolve_fs_target,
 )
 
 

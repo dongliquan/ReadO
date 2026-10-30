@@ -6,6 +6,7 @@ import os
 import re
 import shutil as _shutil
 import subprocess
+import threading
 
 import server as S
 
@@ -342,3 +343,57 @@ def api_mkdir(data):
         return 500, {"error": str(e)}
     _tree_changed(full)
     return {"path": S._rel_key(full, S.base_root())}
+
+
+# ----- recent lists: which entries are gone -----
+# One batch for Find File's recent files and the recent folders. Bounded: at
+# most EXISTS_MAX entries and EXISTS_BUDGET seconds in all (network drives), the
+# rest is left out of the answer. An entry is reported gone (False) only when
+# what it hangs on is there (the open folder, the drive or share) and the entry
+# is not; anything it cannot tell is left out, and the page keeps it.
+EXISTS_MAX = 200
+EXISTS_BUDGET = 1.5
+
+
+def _anchor_ok(full):
+    drive = os.path.splitdrive(full)[0]
+    return bool(drive) and os.path.isdir(drive + os.sep)
+
+
+def _file_state(key):
+    full = S.resolve_read_path(key)  # relative: inside the open folder; absolute: opened by the user
+    if not full:
+        return None
+    if os.path.isfile(full):
+        return True
+    anchor = S.base_root() if not S._is_abs_key(key) else None
+    return False if (os.path.isdir(anchor) if anchor else _anchor_ok(full)) else None
+
+
+def _dir_state(path):
+    if os.path.isdir(path):
+        return True
+    return False if _anchor_ok(os.path.abspath(path)) else None
+
+
+@S.write_api("/api/exists")
+def api_exists(data):
+    files = [k for k in data.get("files") or [] if isinstance(k, str) and k][:EXISTS_MAX]
+    # folders: only those in the saved recent-folders list (no probing of other paths)
+    known = set(S.ui_state().get("recentFolders") or [])
+    dirs = [d for d in data.get("dirs") or [] if isinstance(d, str) and d in known][:EXISTS_MAX]
+    out = {"files": {}, "dirs": {}}
+
+    def work():
+        for k in files:
+            s = _file_state(k)
+            if s is not None:
+                out["files"][k] = s
+        for d in dirs:
+            s = _dir_state(d)
+            if s is not None:
+                out["dirs"][d] = s
+    t = threading.Thread(target=work, daemon=True)
+    t.start()
+    t.join(EXISTS_BUDGET)
+    return {"files": dict(out["files"]), "dirs": dict(out["dirs"]), "complete": not t.is_alive()}

@@ -496,7 +496,7 @@ def main():
                 and "status of 400" not in m.text and "status of 404" not in m.text and "status of 415" not in m.text
                 and errors.append(m.text))
         def on_resp(r):
-            if r.status == 404 and "ext.txt" not in r.url:
+            if r.status == 404 and "ext.txt" not in r.url and "brief.ts" not in r.url:  # brief.ts: deleted on purpose
                 errors.append("404 " + r.url)
         page.on("response", on_resp)
         page.goto(f"http://127.0.0.1:{PORT}/")
@@ -1074,6 +1074,68 @@ def main():
         finally:
             server.find_files = find_files0
         ev("closeQO(); STATE.recent = window._recent0")
+
+        # --- recent files / folders that are gone leave the lists ---
+        import srv_fileops
+        base = server.base_root()
+        gone_dir = os.path.join(base, "proj", "gone")
+        os.makedirs(os.path.join(gone_dir, "sub"), exist_ok=True)
+        for n in ("a.ts", "sub/b.ts"):
+            with open(os.path.join(gone_dir, *n.split("/")), "w") as f:
+                f.write("x\n")
+        missing_folder = os.path.join(tempfile.gettempdir(), "reado-gone-folder-%d" % os.getpid())
+        os.makedirs(missing_folder, exist_ok=True)
+        ev("window._recent1 = STATE.recent.slice(); window._folders1 = (STATE.recentFolders || []).slice()")
+        for k in ("proj/gone/a.ts", "proj/gone/sub/b.ts"):
+            ev(f"openFile({json.dumps(k)})")
+            page.wait_for_function(f"currentPath === {json.dumps(k)}", timeout=5000)
+        ev(f"STATE.recentFolders = [{json.dumps(missing_folder)}].concat(STATE.recentFolders || []); flushState()")
+        time.sleep(0.5)
+        ev("(async () => { for (const k of [...panes[activePaneIdx].tabs.keys()]) if (k.startsWith('proj/gone/')) await closeTabIn(activePaneIdx, k, true); })()")
+        st, body = raw_post("/api/exists", {"files": ["proj/gone/a.ts", "proj/A.java", "../x", "proj/never.ts"],
+                                            "dirs": [missing_folder, "C:\\not-in-the-saved-list"]}, server.CSRF_TOKEN)
+        check("/api/exists: existing true, missing false, an escaping key and a folder not in the saved list left out",
+              st == 200 and body["files"] == {"proj/gone/a.ts": True, "proj/A.java": True, "proj/never.ts": False}
+              and body["dirs"] == {missing_folder: True} and body["complete"], str(body))
+        for d in (gone_dir, missing_folder):  # an index walk / scanner may hold a folder for a moment
+            for _ in range(20):
+                try:
+                    shutil.rmtree(d); break
+                except PermissionError:
+                    time.sleep(0.25)
+        ev("_pruneAt = 0; openQO('')")
+        page.wait_for_function("!STATE.recent.some(k => k.startsWith('proj/gone/'))", timeout=5000)
+        check("deleted folder: its files leave Find File's recent list (shown and saved)",
+              not ev("_qoItems.some(i => (i.path || '').startsWith('proj/gone/'))")
+              and ev("STATE.recent.includes('proj/A.java')"), str(ev("_qoItems.map(i => i.path)")))
+        check("deleted folder: it leaves the recent folders (start screen / open folder)",
+              not ev(f"STATE.recentFolders.includes({json.dumps(missing_folder)})"))
+        time.sleep(1.2)
+        saved = server.ui_state()
+        check("the pruned lists are saved (state.json)",
+              not any(k.startswith("proj/gone/") for k in saved.get("recent", []))
+              and missing_folder not in saved.get("recentFolders", []))
+        ev("closeQO()")
+        # opening a recent file that was deleted meanwhile drops it at once
+        with open(os.path.join(base, "proj", "brief.ts"), "w") as f:
+            f.write("x\n")
+        ev("addRecent('proj/brief.ts')")
+        os.remove(os.path.join(base, "proj", "brief.ts"))
+        ev("openFile('proj/brief.ts')")
+        page.wait_for_function("!STATE.recent.includes('proj/brief.ts')", timeout=5000)
+        check("opening a recent file that is gone: toast, and it leaves the recent list", True)
+        # a drive that does not answer in time: nothing is reported gone, nothing dropped
+        budget0, state0 = srv_fileops.EXISTS_BUDGET, srv_fileops._file_state
+        srv_fileops.EXISTS_BUDGET = 0.3
+        srv_fileops._file_state = lambda k: (time.sleep(1), False)[1]
+        try:
+            ev("addRecent('proj/never.ts'); _pruneAt = 0")
+            changed = ev("pruneRecent(true)")
+            check("slow check: entries not answered in time are kept",
+                  changed is False and ev("STATE.recent.includes('proj/never.ts')"))
+        finally:
+            srv_fileops.EXISTS_BUDGET, srv_fileops._file_state = budget0, state0
+        ev("STATE.recent = window._recent1; STATE.recentFolders = window._folders1; saveState()")
         ev("openSettings()")
         page.wait_for_selector("#settingsBg.show")
         page.wait_for_function("document.getElementById('setSearchIgnored').value.includes('build')")

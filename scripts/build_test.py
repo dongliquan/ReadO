@@ -109,7 +109,7 @@ def summary(results, log_dir):
     print(f"  logs {log_dir}")
     bad = [r for r in results if r[1] == "FAILED"]
     if not bad and h:
-        print(f"\nall passed. Into dist (see docs/RELEASE.md):\n  python scripts/swap_dist.py --apply --expect {h}")
+        print(f"\nall passed. Into dist (see docs/RELEASE.md):\n  python scripts/swap_dist.py --apply --expect {h} --restart")
     return 1 if bad else 0
 
 

@@ -352,7 +352,8 @@ checks and a per-process token on every write request.
 - `fetch-vendor.py` — downloads the bundled 3rd-party assets into `vendor/` (stdlib only, versions pinned)
 - `build.bat` — PyInstaller one-file build (`build.bat dist-next` builds next to a running `dist\reado.exe`)
 - `scripts/` — `build_test.py` (build `dist-next` + every automated suite), `swap_dist.py` (tested build into
-  `dist`, old one to `dist-prev`; dry run unless `--apply`) — the release steps are in `docs/RELEASE.md`
+  `dist`, old one to `dist-prev`; dry run unless `--apply`; `--restart` starts the new exe) — the release steps
+  are in `docs/RELEASE.md`
 - `docs/` — feature list and gap analysis (`FEATURES.md`), performance report (`PERF.md`), design review (`DESIGN-REVIEW.md`)
 
 <a id="s7"></a>

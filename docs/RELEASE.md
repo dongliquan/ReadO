@@ -114,7 +114,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 </style>
 
 **대상**: 새 빌드를 `dist\reado.exe`로 내보내기까지의 절차  
-**원칙**: 테스트를 통과한 빌드만 `dist`에 넣는다. 실행 중인 ReadO는 정상 닫기만 하고, 저장 안 된 편집이 있으면 교체를 멈춘다. 프로세스를 이름·경로로 일괄 종료하지 않는다.
+**원칙**: 테스트를 통과한 빌드만 `dist`에 넣는다. 실행 중인 ReadO는 정상 닫기로 자동 종료하고, 저장 안 된 편집이 있으면 교체를 멈춘다. 강제 종료나 taskkill로 이름·경로 일괄 종료는 하지 않는다. 교체한 뒤에는 새 `dist\reado.exe`를 다시 띄운다(`--restart`, 매니저 승인 상시 규칙).
 
 <a id="toc"></a>
 
@@ -139,7 +139,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
  <div class="ar">→</div>
  <div class="cd" style="border-top-color:#d6b656"><b><span class="st">2</span> 수동 확인</b><span class="k">README · Manual checks</span><span class="s">자동 테스트로 못 하는 것(드래그 앤 드롭, 연결 프로그램, 타이틀바 등)을 dist-next exe로 확인</span></div>
  <div class="ar">→</div>
- <div class="cd" style="border-top-color:#82b366"><b><span class="st">3</span> dist 교체</b><span class="k">python scripts/swap_dist.py</span><span class="s">먼저 dry run으로 할 일을 보고, --apply --expect &lt;해시&gt;로 실행</span></div>
+ <div class="cd" style="border-top-color:#82b366"><b><span class="st">3</span> dist 교체</b><span class="k">python scripts/swap_dist.py</span><span class="s">먼저 dry run으로 할 일을 보고, --apply --expect &lt;해시&gt; --restart로 실행(닫기 → 교체 → 재기동)</span></div>
  <div class="ar">→</div>
  <div class="cd" style="border-top-color:#9673a6"><b><span class="st">4</span> 버전 끊기</b><span class="k">CHANGELOG.md</span><span class="s">[Unreleased]를 새 버전 항목으로 옮기고 README 버전을 맞춘다. 태그는 매니저 결정 후</span></div>
 </div>
@@ -200,20 +200,25 @@ exe 화면 스모크(실제 창·마우스·타이틀바를 조작하는 35개 �
 ```bash
 python scripts/swap_dist.py                                  # dry run
 python scripts/swap_dist.py --apply --expect <dist-next 해시>  # 교체
+python scripts/swap_dist.py --apply --expect <dist-next 해시> --restart  # 교체 후 재기동(기본 사용법)
 ```
 
 `--expect`에는 build_test.py 요약에 나온 해시를 그대로 넣는다. 테스트한 그 빌드만 들어가게 하기 위해서다.
+
+`--restart`는 매니저가 평소 띄우는 방식과 같게 새 `dist\reado.exe`를 띄운다. 작업 폴더는 `dist`, APPDATA는 스크립트를 실행한 사용자의 것을 그대로 쓰므로 마지막 폴더도 복원되며, 격리 실행이 아니다. 그다음 `instance.json`에 새 프로세스가 `shown: true`로 기록될 때까지 최대 60초 기다린다. 따라서 격리 APPDATA를 설정한 셸에서 실행하면 재기동도 그 APPDATA로 뜬다.
 
 ### <span class="n3">3.2</span> 단계(--apply)
 
 <div class="lay">
  <div class="cd" style="border-top-color:#6c8ebf"><b><span class="st">1</span> 확인</b><span class="s">dist-next 해시 계산, --expect와 비교. dist와 같으면 이미 교체된 것이므로 끝</span></div>
  <div class="ar">→</div>
- <div class="cd" style="border-top-color:#d6b656"><b><span class="st">2</span> 정상 닫기</b><span class="s">dist·dist-prev·dist-next에서 실행 중인 ReadO 창에 WM_CLOSE. 강제 종료는 하지 않는다</span></div>
+ <div class="cd" style="border-top-color:#d6b656"><b><span class="st">2</span> 정상 닫기</b><span class="s">dist·dist-prev·dist-next에서 실행 중인 ReadO 창에 WM_CLOSE. 대상은 exe 폴더로 찾은 프로세스와, 그 폴더에서 실행 중일 때의 instance.json PID. 강제 종료는 하지 않는다</span></div>
  <div class="ar">→</div>
  <div class="cd" style="border-top-color:#82b366"><b><span class="st">3</span> 복사</b><span class="s">dist → dist-prev(덮어씀), dist-next → dist. 복사할 때마다 SHA256 확인</span></div>
  <div class="ar">→</div>
  <div class="cd" style="border-top-color:#9673a6"><b><span class="st">4</span> 정리</b><span class="s">dist-next, build, build-dist-next 삭제. dist와 dist-prev만 남긴다</span></div>
+ <div class="ar">→</div>
+ <div class="cd" style="border-top-color:#b85450"><b><span class="st">5</span> 재기동(--restart)</b><span class="s">새 dist\reado.exe를 띄우고 instance.json에 창이 떴다고 기록될 때까지 기다린다. 2에서 멈췄으면 하지 않는다</span></div>
 </div>
 
 ### <span class="n3">3.3</span> 멈추는 경우
@@ -222,10 +227,11 @@ python scripts/swap_dist.py --apply --expect <dist-next 해시>  # 교체
 |---|---|---|---|
 | `dist-next\reado.exe`가 없다 | 바로 멈춘다 | 1 | 바뀐 것 없음 |
 | `--expect`와 해시가 다르다 | 바로 멈춘다 | 1 | 바뀐 것 없음 |
-| `dist`와 해시가 같다 | "nothing to do" | 0 | 바뀐 것 없음(같은 빌드를 두 번 교체하지 않는다) |
+| `dist`와 해시가 같다 | "nothing to do". `--restart`가 있으면 dist의 ReadO가 꺼져 있을 때만 띄운다 | 0 | 바뀐 것 없음(같은 빌드를 두 번 교체하지 않는다) |
 | 실행 중인 ReadO에 **저장 안 된 편집**이 있다 | ReadO가 띄운 "Quit without saving?" 상자에 **Cancel**로 답하고 멈춘다 | 1 | 창과 편집은 그대로, 파일도 그대로 |
 | 30초가 지나도 ReadO가 끝나지 않는다 | PID를 알려 주고 멈춘다 | 1 | 바뀐 것 없음, 사용자가 직접 닫는다 |
-| 복사 중 오류 | 현재 `dist`가 옛 빌드인지, 새 빌드인지, 손상됐는지 알려 준다 | 2 | `dist-next`는 남긴다. 손상이면 `dist-prev`를 `dist`로 복사 |
+| 복사 중 오류 | 현재 `dist`가 옛 빌드인지, 새 빌드인지, 손상됐는지 알려 준다 | 2 | `dist-next`는 남긴다. 손상이면 `dist-prev`를 `dist`로 복사. `--restart`면 dist가 손상되지 않았을 때만 다시 띄운다 |
+| `--restart`로 띄운 창이 60초 안에 뜨지 않는다 | 알리고 끝낸다 | 3 | 교체는 끝난 상태. `%APPDATA%\ReadO\startup.log`를 확인한다 |
 
 ### <span class="n3">3.4</span> 검증
 
@@ -235,6 +241,8 @@ python scripts/swap_dist.py --apply --expect <dist-next 해시>  # 교체
 |---|---|---|
 | 닫기 | scratch 폴더에 exe 사본을 따로 띄우고 편집 중인 상태와 편집 없는 상태로 `close_normally` 실행 | 편집 중이면 Cancel하고 멈추며 편집이 남는다. 편집이 없으면 모든 프로세스가 정상 종료된다(7/7) |
 | 복사·정리 | 가짜 dist·dist-prev·dist-next 폴더로 `--apply` 실행 | dry run은 무변경, 해시가 틀리면 무변경, 교체 후 dist·dist-prev만 남음, 같은 빌드 재실행은 무변경(4/4) |
+| 닫기 → 교체 → 재기동(`--restart`) | 가짜 dist에서 옛 exe를 격리 APPDATA로 띄운 뒤 `--apply --expect --restart` 실행. 이어서 같은 빌드로 실행 중/꺼짐 상태에서 각각 실행하고, `--restart` dry run도 실행 | instance.json PID로 찾은 옛 프로세스가 정상 종료되고, 교체 후 새 창이 뜬다. 실행 중이면 다시 띄우지 않고, 꺼져 있으면 띄운다. dry run은 아무것도 띄우지 않는다(12/12) |
+| 실제 적용 | 2026-11-03 #T42: 매니저가 ReadO를 닫은 뒤 `dist`를 `8B80AC71…`로 교체하고 다시 띄움 | 창이 뜸 |
 
 ---
 

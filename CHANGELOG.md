@@ -157,6 +157,10 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
   diff from its own repository. Commit / Rollback / Resolve (AgentO) work on the files of one repository at a time.
   Branch, Pull, Fetch, Log, History and Stash ask you to choose one repository; **Show Only <name>** on a file
   does that. The choice is kept between runs. Clicking a name in the menu shows that repository alone, as before.
+- Release: `python scripts/swap_dist.py --apply --expect <hash> --restart` starts the new `dist\reado.exe` after
+  the swap (your normal settings, last folder restored) and waits until its window is up (exit code 3 if it does
+  not come up). The running ReadO it closes first is also found by the PID in `%APPDATA%\ReadO\instance.json`;
+  it still gets only a normal close, and unsaved edits stop the swap.
 
 ---
 

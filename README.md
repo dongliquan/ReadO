@@ -381,3 +381,8 @@ Run these on a real desktop after a new build (`dist-next\reado.exe`); the autom
    Ctrl+click two files and Move to Changelist…; drag a file onto another list with the real mouse (the desktop
    WebView); Set Active, change a file, ⟳ — it lands in the active list; restart ReadO and switch branch — the lists
    stay; Commit… on a list copies an AgentO instruction with only its files and its name as the message.
+7. **Repository menu (Git window header)** — in a folder with many repositories, in the light and the dark theme:
+   the menu looks like the branch menu (no white system list), badges fill in, the filter and ↑ / ↓ Enter Esc work.
+   Tick two repositories → Show: Local Changes groups them; fold one; click files of both (each diff from its own
+   repository); Pull / Fetch are greyed; All repositories with a few dozen repositories stays responsive while the
+   groups fill in; restart ReadO — the same set is shown; click one name — back to one repository.

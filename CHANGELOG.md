@@ -151,6 +151,12 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
 - Git window: the **repository menu** looks like the branch menu (theme colours instead of the white system list).
   It has a filter box, ✓ on the selected repository and a badge with each repository's number of changed files
   (red when it has conflicts). ↑ / ↓, Enter and Esc work in it.
+- Git window: **Local Changes of several repositories at once**. Tick repositories in the repository menu (or
+  **All repositories**) and press **Show**. Local Changes then groups the files by repository, with the branch,
+  any merge / rebase in progress and a file count on each group, and each group folds. Clicking a file shows its
+  diff from its own repository. Commit / Rollback / Resolve (AgentO) work on the files of one repository at a time.
+  Branch, Pull, Fetch, Log, History and Stash ask you to choose one repository; **Show Only <name>** on a file
+  does that. The choice is kept between runs. Clicking a name in the menu shows that repository alone, as before.
 
 ---
 

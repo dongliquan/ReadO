@@ -408,7 +408,7 @@ def repo_menu_tests(pg, shot):
     the selected repository marked, change-count badges, ↑ / ↓ Enter Esc; picking one switches the window."""
     ev = pg.evaluate
     BTN, BOX = "#gitWin .gw-repo", "#gitPick.grepo"
-    names = lambda: ev(f"[...document.querySelectorAll('{BOX} .it .nm')].map(n => n.textContent)")
+    names = lambda: ev(f"[...document.querySelectorAll('{BOX} .it[data-root] .nm')].map(n => n.textContent)")
     check(ev(f"document.querySelector('{BTN}').tagName") == "BUTTON" and not ev("!!document.querySelector('#gitWin select')"),
           "repository chooser is a button, no native <select>")
     check(ev(f"document.querySelector('{BTN} .nm').textContent") == "basic", "button shows the selected repository")
@@ -458,6 +458,101 @@ def repo_menu_tests(pg, shot):
     pg.wait_for_function("GitUI.G.repo.name === 'basic'", timeout=10000)
     check(True, "click picks a repository")
     ev("document.body.classList.contains('theme-dark') && runCommand('view.theme')")
+
+
+def repo_multi_tests(pg, shot):
+    """Several repositories at once: ticks in the repository menu (+ All repositories), Local Changes grouped by
+    repository (name, branch, count, folding), a file's diff from its own repository, single-repository actions
+    off, Log asks for one repository, the choice kept in state.json (also across a reload)."""
+    ev = pg.evaluate
+    BTN, BOX, P = "#gitWin .gw-repo", "#gitPick.grepo", "#gitWin [data-page=changes] "
+    row = lambda name: f"{BOX} .it:has(.nm:text-is({name!r}))"
+    groups = lambda: ev(f"[...document.querySelectorAll('{P}.gt-row.group')].map(r => r.querySelector('.nm').textContent)")
+    root = lambda name: ev(f"GitUI.G.repos.find(r => r.name === {name!r}).root")
+    ev("GitUI.setTab('changes')")
+    pg.click(BTN)
+    pg.wait_for_selector(BOX)
+    check(ev(f"document.querySelectorAll('{BOX} .it[data-root] input[type=checkbox]').length") == ev("GitUI.G.repos.length")
+          and ev(f"!!document.querySelector('{BOX} .it.all')"), "menu: a checkbox per repository + All repositories")
+    check(pg.locator(f"{row('basic')} input").is_checked(), "the shown repository starts ticked")
+    pg.click(f"{row('conflict')} input")
+    pg.click(f"{row('rename')} input")
+    check(ev(f"!!document.querySelector('{BOX}')") and ev(f"document.querySelector('{BOX} [data-a=show]').textContent") == "Show 3",
+          "ticking keeps the menu open; footer: Show 3")
+    check(ev(f"document.querySelector('{BOX} .it.all input').indeterminate"), "All repositories: partly ticked")
+    shot("r2-repo-menu-ticks")
+    pg.click(f"{BOX} [data-a=show]")
+    pg.wait_for_function("GitUI.isMulti()")
+    check(ev(f"document.querySelector('{BTN} .nm').textContent") == "3 repositories", "button: 3 repositories")
+    check(sorted(ev("GitUI.S.repoMulti")) == sorted([root("basic"), root("conflict"), root("rename")]) and ev("GitUI.S.repo") == root("basic"),
+          "state.json: git.repoMulti = the three, git.repo (single choice) kept")
+    pg.wait_for_function(f"!document.querySelector('{P}.gw-bar .sum').textContent.includes('loading')", timeout=30000)
+    check(groups() == ["basic", "conflict"], f"Local Changes grouped by repository with changes, menu order ({groups()})")
+    summ = ev(f"document.querySelector('{P}.gw-bar .sum').textContent")
+    check("in 2 of 3 repositories" in summ, f"summary counts repositories ({summ})")
+    notes = ev(f"[...document.querySelectorAll('{P}.gt-row.group')].map(r => r.querySelector('.gnote').textContent + ' | ' + r.querySelector('.cnt').textContent)")
+    check(notes[0].startswith("⎇ main") and "MERGING" in notes[1] and all("file" in n for n in notes), f"group: branch, state, file count ({notes})")
+    pg.click(f"{P}.gt-row:not(.group)[data-id$='|c.txt']")
+    pg.wait_for_function("GitUI.Changes.pane.spec && GitUI.Changes.pane.spec.path === 'c.txt'", timeout=10000)
+    check(ev("GitUI.Changes.pane.spec.key") == "conflict/c.txt", "file click: diff from that file's repository (conflict/c.txt)")
+    pg.click(f"{P}.gt-row:not(.group)[data-id*='|src/app.py']")
+    pg.wait_for_function("GitUI.Changes.pane.spec && GitUI.Changes.pane.spec.path === 'src/app.py' && GitUI.Changes.pane.spec.left.startsWith('line 0')", timeout=10000)
+    check(ev("GitUI.Changes.pane.spec.key") == "basic/src/app.py", "another repository's file: its own HEAD (basic/src/app.py)")
+    gid = "g:r:" + root("conflict")
+    pg.click(f"{P}.gt-row[data-id={gid!r}] .tw")
+    check(not ev(f"!!document.querySelector('{P}.gt-row[data-id$=\"|c.txt\"]')"), "a repository group folds")
+    pg.click(f"{P}.gt-row[data-id={gid!r}] .tw")
+    check(ev(f"!!document.querySelector('{P}.gt-row[data-id$=\"|c.txt\"]')"), "… and unfolds")
+    check(all(ev(f"(b => b.disabled && +getComputedStyle(b).opacity < 0.6)(document.querySelector('#gitWin .gw-head [data-a={a}]'))") for a in ("branch", "pull", "fetch")),
+          "branch / Pull / Fetch off (and greyed) with several repositories")
+    pg.click(f"{P}.gt-row:not(.group)[data-id$='|c.txt']", button="right")
+    labels = ev("[...document.querySelectorAll('#ctxMenu .ctx-item')].map(i => i.dataset.label + (i.classList.contains('disabled') ? '-' : ''))")
+    check("Show Only conflict" in labels and "Move to Changelist…" not in " ".join(labels) and "Resolve Conflict… (AgentO)" in labels,
+          f"file menu: one-repository actions, Show Only <repo>, no changelists ({labels})")
+    pg.keyboard.press("Escape")
+    ev("GitUI.setTab('log')")
+    check("Log shows one repository" in pg.inner_text("#gitWin [data-page=msg]"), "Log tab asks for one repository")
+    shot("r3-log-pick-one")
+    ev("GitUI.setTab('changes')")
+    pg.wait_for_function(f"document.querySelectorAll('{P}.gt-row.group').length == 2", timeout=10000)
+    for theme in ("dark", "light"):
+        ev(f"document.body.classList.contains('theme-{theme}') || runCommand('view.theme')")
+        pg.wait_for_function(f"document.body.classList.contains('theme-{theme}')")
+        shot(f"r4-multi-changes-{theme}")
+    print("== repository set kept across a reload")
+    time.sleep(1.2)  # saveState is debounced
+    pg.reload()
+    pg.wait_for_function("window.GitUI && GitUI.G.repos.length >= 6 && GitUI.isMulti()", timeout=30000)
+    pg.wait_for_function(f"document.querySelectorAll('{P}.gt-row.group').length == 2", timeout=30000)
+    check(ev(f"document.querySelector('{BTN} .nm').textContent") == "3 repositories" and groups() == ["basic", "conflict"],
+          "after a reload: the same three repositories, grouped")
+    print("== All repositories, keys")
+    pg.click(BTN)
+    pg.wait_for_selector(BOX)
+    pg.click(f"{BOX} .it.all .nm")
+    pg.wait_for_function("GitUI.S.repoAll && GitUI.isMulti()")
+    n = ev("GitUI.G.repos.length")
+    check(ev(f"document.querySelector('{BTN} .nm').textContent") == f"All repositories ({n})", "All repositories: button names it")
+    pg.wait_for_function(f"!document.querySelector('{P}.gw-bar .sum').textContent.includes('loading')", timeout=60000)
+    summ = ev(f"document.querySelector('{P}.gw-bar .sum').textContent")
+    want = ev("GitUI.G.repos.filter(r => { const s = GitUI.G.mst.get(r.root); return s && !s.error && s.files.some(f => !f.eol); }).map(r => r.name)")
+    check(f"of {n} repositories" in summ and groups() == want and len(want) >= 3, f"All: every repository with changes ({groups()}; {summ})")
+    pg.click(BTN)
+    pg.wait_for_selector(BOX)
+    check(ev(f"document.querySelector('{BOX} .it.all').classList.contains('cur') && document.querySelector('{BOX} .it.all input').checked"), "menu: All ticked and marked")
+    pg.fill(f"{BOX} input.q", "")
+    pg.keyboard.press("ArrowDown")  # off All onto the first repository
+    pg.keyboard.press("Space")
+    check(not ev(f"document.querySelector('{BOX} .it.act input').checked"), "Space unticks the highlighted repository")
+    pg.keyboard.press("Control+Enter")
+    pg.wait_for_function("!GitUI.S.repoAll && GitUI.isMulti()")
+    check(len(ev("GitUI.multiRoots()")) == n - 1, f"Ctrl+Enter shows the ticked ones ({len(ev('GitUI.multiRoots()'))} of {n})")
+    print("== back to one repository")
+    ev(f"GitUI.selectRepo({root('basic')!r})")
+    pg.wait_for_function(f"!GitUI.isMulti() && document.querySelector('{BTN} .nm').textContent === 'basic'")
+    pg.wait_for_function(f"[...document.querySelectorAll('{P}.gt-row.group .nm')].some(n => n.textContent === 'Unversioned Files')", timeout=10000)
+    check(not ev(f"document.querySelector('#gitWin .gw-head [data-a=pull]').disabled") and ev("GitUI.S.repoMulti").__len__() == 0,
+          "one repository again: changelist groups, Pull on, git.repoMulti cleared")
 
 
 def find_dialog_tests(pg, ev, shot, base):
@@ -874,6 +969,7 @@ def main():
         pg = b.new_page(viewport={"width": 1500, "height": 950})
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        pg.on("response", lambda r: r.status >= 400 and r.status != 429 and errors.append(f"HTTP {r.status} {r.url}"))
         pg.goto(url)
         pg.wait_for_function("typeof monaco !== 'undefined' && window.GitUI && document.querySelector('#tree .node')", timeout=30000)
         shot = lambda n: shots and pg.screenshot(path=os.path.join(shots, n + ".png"))
@@ -911,6 +1007,8 @@ def main():
         shot("1-local-changes")
         print("== repository menu")
         repo_menu_tests(pg, shot)
+        print("== several repositories")
+        repo_multi_tests(pg, shot)
         pg.evaluate("GitUI.setTab('changes')")
         pg.wait_for_function("document.querySelectorAll('#gitWin [data-page=changes] .gt-row').length > 5", timeout=20000)
         print("== Local Changes: file tree | diff (split)")

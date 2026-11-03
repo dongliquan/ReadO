@@ -798,6 +798,21 @@ Git 창 머리의 저장소 선택이 네이티브 `<select>`였다. 펼친 목�
 | 동작 | 고르면 기존 `selectRepo` 그대로: Git 창 전환, `state.json`의 `git.repo` 저장 |
 | 배지 데이터 | `GET /api/git/summary?repo=` — `status()`(캐시, 저장소별 1회 실행 잠금, git 게이트)를 그대로 쓰고 파일 목록 없이 `{n, eol, conflicts, truncated, branch, state}`만 준다. 페이지는 메뉴를 열 때 15초보다 오래된 것만 다시 묻고, 동시에 3개까지만 보낸다(같은 저장소는 하나로 합친다). 선택한 저장소는 `/status` 응답으로도 갱신된다 |
 
+### 여러 저장소를 함께 보기 (Local Changes)
+
+매니저 요청: "local changes를 전부 다 보고 싶을 때가 있다." 보기만 여러 저장소로 넓힌다. 쓰기(Pull·Fetch·Checkout)와 AgentO 요청은 지금처럼 한 저장소 단위다.
+
+| 항목 | 내용 |
+|---|---|
+| 고르기 | 메뉴의 저장소마다 체크박스, 맨 위에 **All repositories**. 이름 클릭(또는 Enter)은 그 저장소 하나, 체크박스 클릭(또는 강조 행에서 Space)은 표시만 하고 메뉴를 열어 둔다. 하단 **Show n**(Ctrl+Enter)이 적용, **clear**가 모두 해제. All 행은 일부만 체크되면 중간 상태로 보인다 |
+| 저장 | `state.json`의 `git.repoAll`(전체) 또는 `git.repoMulti`(경로 목록). `git.repo`(단일 선택)는 그대로 두어 예전 저장값과 호환된다. 둘 다 비면 예전처럼 한 저장소다. All은 나중에 찾은 저장소도 포함한다. 폴더를 바꾸면 비운다. 목록에서 사라진 저장소는 빠진다 |
+| Local Changes | 저장소별 그룹: 이름, `⎇ 브랜치 ↑↓`, 진행 상태(MERGING 등), 파일 수. 그룹은 접고 펼 수 있다. 변경이 없는 저장소는 숨기고, 상태 조회에 실패한 저장소는 오류와 함께 보인다. 요약 줄은 `n files in m of k repositories · loading x…` 형태다. 체크·폴더 트리·줄바꿈만 다른 파일 숨김은 한 저장소일 때와 같다 |
+| 파일 | 클릭하면 오른쪽 diff, 더블클릭·Enter는 diff 창이다. 둘 다 그 파일의 저장소 기준이다. diff 창의 ↑↓는 같은 저장소 파일만 돈다(OS diff 창은 저장소 하나를 받는다) |
+| 메뉴 | Commit… / Rollback… / Resolve Conflict…(AgentO)는 한 저장소의 파일일 때만 켜지고, 그 저장소로 지시문을 만든다. Show Diff, Open File, Show History, Copy Path(여러 저장소면 `저장소명/경로`), **Show Only <저장소>**, Refresh가 있다. Changelist 항목은 없다(Changelist는 한 저장소 기준) |
+| 막는 것 | 머리의 브랜치·Pull·Fetch 버튼은 꺼지고 툴팁으로 안내한다. AgentO ▾ 메뉴는 Open AgentO만 켜진다. Ctrl+K는 체크한 파일이 한 저장소일 때만, Push는 저장소를 고르라고 안내한다. Log·History·Stash 탭은 "한 저장소만 보여 준다"는 안내와 선택한 저장소 버튼을 보여 준다(누르면 그 저장소 하나로). Console은 그대로다 |
+| 조회 | 저장소마다 `/api/git/status`(기존 엔드포인트, 서버 캐시·잠금·git 게이트 그대로). 페이지 큐가 동시에 3개까지 보내고 도착하는 대로 그린다(60 ms 묶음). 결과는 페이지에 남겨 탭 전환 때 바로 그린다. 갱신은 열려 있는 동안 20초마다, 창 포커스(5초 간격 제한), ⟳ 버튼 때다 |
+| 단일로 돌아가기 | 메뉴에서 이름 클릭, Show Only, Log 안내의 저장소 버튼, History·Show Log·blame 커밋 열기 등 한 저장소 화면으로 가는 동작. 대화상자에 저장소만 필요한 경우(브랜치 메뉴의 New Branch·Push, 실패 대화상자의 Console)는 여러 저장소 보기를 유지한다 |
+
 <a id="sec-14-3"></a>
 
 ## 14.3 AgentO 딥링크 요청 스펙(v1, 초안 — AgentO 구현과 맞춰 확정)

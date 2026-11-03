@@ -21,8 +21,9 @@ const G = {
   blame: new Map(),    // doc key -> {data, decos, css}
   conflicts: new Set(),// ReadO keys of conflicted files (editor markers)
   counts: new Map(),   // root -> {n, eol, conflicts, truncated, t} | {error, t}: badges of the repository menu
+  mst: new Map(),      // root -> last /status ({error} on failure) of each repository shown together (several selected)
 };
-const S_DEFAULTS = { open: false, tab: 'changes', h: 300, repo: '', bw: 220, dw: 380, cw: 420, inline: false, ignoreWs: false, lineBlame: false,
+const S_DEFAULTS = { open: false, tab: 'changes', h: 300, repo: '', repoAll: false, repoMulti: null, bw: 220, dw: 380, cw: 420, inline: false, ignoreWs: false, lineBlame: false,
   ignoreEol: true, showEol: false };
 const S = () => {  // STATE.git with defaults filled in place (always the same object)
   if (!STATE.git || typeof STATE.git !== 'object') STATE.git = {};
@@ -745,8 +746,8 @@ const diffModalOpen = () => DW.wins.length > 0;
 window.addEventListener('resize', () => DW.wins.forEach(w => dwPlace(w, w.g)));
 // a file tree's visible files, opened at `row`; the tree's selection follows prev / next.
 // rev: what the files are compared at ("L:<repo>" for local changes, "C:<hash>" for a commit)
-function openTreeDiff(tree, row, load, rev, desc, repo) {
-  const list = tree.rows.filter(r => r.file);
+function openTreeDiff(tree, row, load, rev, desc, repo, sameGroup) {
+  const list = tree.rows.filter(r => r.file && (!sameGroup || r.group === row.group));
   const i = Math.max(0, list.findIndex(r => r.id === row.id));
   openDiffWin(list, i, r => load(r.file), { ident: r => rev + '|' + r.file.path, onShow: r => tree.selectId(r.id), focus: tree.container,
     repo, desc: desc && (r => desc(r.file)) });
@@ -806,7 +807,7 @@ function FileTree(container, opts) {
       if (opts.showGroups !== false) {
         push(gid, `<div class="gt-row group${g.active ? ' active' : ''}${g.drop ? ' droppable' : ''}" style="padding-left:4px"${g.title ? ` title="${esc(g.title)}"` : ''}><span class="tw">${open ? '▾' : '▸'}</span>` +
           (opts.checkable && g.checkable !== false ? `<input type="checkbox" data-chk="${esc(gid)}"${g.files.length && g.files.every(f => self.checked.has(g.id + '|' + f.path)) ? ' checked' : ''}>` : '') +
-          `<span class="nm">${esc(g.label)}</span>${g.active ? '<span class="tag act">active</span>' : ''}<span class="cnt">${g.files.length} file${g.files.length === 1 ? '' : 's'}</span></div>`, { group: g });
+          `<span class="nm">${esc(g.label)}</span>${g.note ? `<span class="dim gnote">${esc(g.note)}</span>` : ''}${g.active ? '<span class="tag act">active</span>' : ''}<span class="cnt">${g.files.length} file${g.files.length === 1 ? '' : 's'}</span></div>`, { group: g });
       }
       if (!open) continue;
       const walk = (node, prefix, depth, gpath) => {
@@ -970,6 +971,7 @@ function buildWindow() {
   W = { gw, head: gw.querySelector('.gw-head'), repoBtn: gw.querySelector('.gw-repo'), pages: {} };
   gw.querySelectorAll('.gw-page').forEach(p => { W.pages[p.dataset.page] = p; });
   gw.style.height = Math.max(120, Math.min(S().h, innerHeight - 200)) + 'px';
+  W.pages.msg.addEventListener('click', e => { const b = e.target.closest('[data-root]'); if (b) selectRepo(b.dataset.root); });
   W.head.addEventListener('click', e => {
     const tab = e.target.closest('.gw-tab');
     if (tab) {
@@ -980,6 +982,7 @@ function buildWindow() {
     if (a === 'repo') repoPicker(btn);
     if (a === 'close') toggleWindow(false);
     if (a === 'refresh') refreshAll(true);
+    if ((a === 'branch' || a === 'pull' || a === 'fetch') && isMulti()) return showToast('several repositories are shown — choose one in the repository menu', true);
     if (a === 'branch' && G.repo) branchPopup(btn, G.repo);
     if (a === 'pull' && G.repo) tbPull(G.repo);
     if (a === 'fetch' && G.repo) gitFetch(G.repo);
@@ -1001,17 +1004,18 @@ function agentMenu(anchor) {
   const r = anchor.getBoundingClientRect();
   const st = G.status || {}, b = st.branch || {};
   const conflicted = (st.files || []).filter(f => f.kind === 'conflicted').map(f => f.path);
+  const many = isMulti(), one = many ? 'one repository: choose it first' : '';  // AgentO requests go to one repository
   showMenu(r.left, r.bottom + 2, [
-    { label: 'Commit…', hint: STATE.keymap === 'intellij' ? 'Ctrl+K' : '', run: () => runCommand('git.agentCommit') },
-    { label: 'Push…', hint: STATE.keymap === 'intellij' ? 'Ctrl+Shift+K' : '', run: () => agentDialog('push', { branch: b.head, upstream: b.upstream }) },
+    { label: 'Commit…', hint: one || (STATE.keymap === 'intellij' ? 'Ctrl+K' : ''), disabled: many, run: () => runCommand('git.agentCommit') },
+    { label: 'Push…', hint: one || (STATE.keymap === 'intellij' ? 'Ctrl+Shift+K' : ''), disabled: many, run: () => agentDialog('push', { branch: b.head, upstream: b.upstream }) },
     'sep',
-    { label: 'New Branch…', run: () => agentDialog('newBranch', {}) },
-    { label: 'Stash Changes…', run: () => agentDialog('stashPush') },
-    { label: 'Resolve Conflicts…', disabled: !conflicted.length, run: () => agentDialog('resolve', { files: conflicted, state: G.repo && G.repo.state }) },
+    { label: 'New Branch…', disabled: many, run: () => agentDialog('newBranch', {}) },
+    { label: 'Stash Changes…', disabled: many, run: () => agentDialog('stashPush') },
+    { label: 'Resolve Conflicts…', disabled: many || !conflicted.length, run: () => agentDialog('resolve', { files: conflicted, state: G.repo && G.repo.state }) },
     'sep',
-    { label: 'Ask AgentO…', run: () => agentDialog('ask') },
+    { label: 'Ask AgentO…', disabled: many, run: () => agentDialog('ask') },
     { label: 'Open AgentO', run: () => openAgentO() },
-    { label: 'Open Terminal Here', run: () => openTerminal() },
+    { label: 'Open Terminal Here', disabled: many, run: () => openTerminal() },
   ]);
 }
 function toggleWindow(on) {
@@ -1043,12 +1047,21 @@ function setTab(tab) {
   if (!W) return;
   W.head.querySelectorAll('.gw-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   if (!G.repo || (G.info && !G.info.available)) return start();
+  if (isMulti() && tab !== 'changes' && tab !== 'console') return showMsg(oneRepoMsg(tab));
   Object.entries(W.pages).forEach(([k, p]) => p.classList.toggle('active', k === tab));
   if (tab === 'changes') Changes.show();
   if (tab === 'log') Log.show();
   if (tab === 'history' && History) History.show();
   if (tab === 'stash') Stash.show();
   if (tab === 'console') Console_.show();
+}
+function oneRepoMsg(tab) {
+  const what = { log: 'Log', history: 'History', stash: 'Stash' }[tab] || tab;
+  const byRoot = new Map(G.repos.map(r => [r.root, r]));
+  const roots = multiRoots();
+  return `<b>${esc(what)} shows one repository</b><br>${roots.length} repositories are selected for Local Changes. Show the ${esc(what)} of:` +
+    `<div class="gw-one">${roots.slice(0, 40).map(rt => `<button data-root="${esc(rt)}" title="${esc(rt)}">${esc(byRoot.get(rt).name)}</button>`).join('')}` +
+    `${roots.length > 40 ? `<span>… or choose another in the repository menu</span>` : ''}</div>`;
 }
 async function loadRepos() {
   const d = await api('repos');
@@ -1061,17 +1074,49 @@ async function loadRepos() {
     if (inf && inf.repo && !G.repos.some(r => r.root === inf.repo.root)) G.repos.unshift(inf.repo);
   }
   renderRepoBtn();
-  if (want) await selectRepo(want, true);
+  if (want) await selectRepo(want, true, true);
   else G.repo = null;
 }
 // the repository button in the Git window header: the selected repository and its change count
 function renderRepoBtn() {
   if (!W) return;
-  const b = W.repoBtn, r = G.repo;
+  const b = W.repoBtn, r = G.repo, many = isMulti();
   b.style.display = G.repos.length > 1 ? '' : 'none';
-  b.querySelector('.nm').textContent = r ? r.name : '…';
-  setBadge(b.querySelector('.bdg'), r && G.counts.get(r.root));
-  b.title = r ? `repository: ${r.root.replace(/\//g, '\\')} — click: choose another` : 'repository';
+  b.classList.toggle('multi', many);
+  if (many) {
+    const roots = multiRoots(), byRoot = new Map(G.repos.map(x => [x.root, x]));
+    b.querySelector('.nm').textContent = S().repoAll ? `All repositories (${roots.length})` : `${roots.length} repositories`;
+    const cs = roots.map(x => G.counts.get(x)).filter(Boolean);
+    setBadge(b.querySelector('.bdg'), cs.length ? { n: cs.reduce((a, c) => a + shownCount(c), 0), eol: 0, conflicts: cs.reduce((a, c) => a + (c.conflicts || 0), 0) } : null);
+    b.title = 'Local Changes of ' + roots.map(x => byRoot.get(x).name).join(', ') + ' — click: choose';
+  } else {
+    b.querySelector('.nm').textContent = r ? r.name : '…';
+    setBadge(b.querySelector('.bdg'), r && G.counts.get(r.root));
+    b.title = r ? `repository: ${r.root.replace(/\//g, '\\')} — click: choose another` : 'repository';
+  }
+  // branch, Pull and Fetch act on one repository
+  const was = W.head.querySelector('[data-a="branch"]').disabled;
+  for (const a of ['branch', 'pull', 'fetch']) {
+    const x = W.head.querySelector(`[data-a="${a}"]`);
+    if (!('t' in x.dataset)) x.dataset.t = x.title;
+    x.disabled = many || TB.busy;
+    if (many) x.title = 'several repositories are shown — choose one in the repository menu';
+    else if (was) x.title = x.dataset.t;  // updateBranch below sets Pull's own hints again
+  }
+  if (many) W.head.querySelector('[data-a="branch"] .nm').textContent = '—';
+  else if (was) updateBranch();
+}
+// statuses of the repositories shown together: Q_MAX at a time, each drawn as it arrives
+let _multiGen = 0, _multiT = 0;
+async function loadMulti(fresh) {
+  const roots = multiRoots(), gen = ++_multiGen;
+  _multiT = Date.now();
+  await Promise.all(roots.map(root => queued('st:' + root + (fresh ? ':f' : ''), () => api('status', { repo: root, fresh: fresh ? 1 : 0 })).then(d => {
+    if (d.aborted) return;
+    G.mst.set(root, d.error ? { error: d } : d);
+    noteCount(root, d);
+    if (gen === _multiGen) { Changes.renderSoon(); renderRepoBtn(); }
+  })));
 }
 // git requests the repository menu (and the several-repositories view) makes for many repositories:
 // at most Q_MAX at a time, one per key; the server's git gate still limits git itself
@@ -1096,7 +1141,7 @@ function noteCount(root, d) {
     : { n: d.n || 0, eol: d.eol || 0, conflicts: d.conflicts || 0, truncated: d.truncated };
   c.t = Date.now();
   G.counts.set(root, c);
-  if (G.repo && G.repo.root === root) renderRepoBtn();
+  if (G.repo && G.repo.root === root || isMulti()) renderRepoBtn();
   const row = document.querySelector(`#gitPick.grepo .it[data-root="${CSS.escape(root)}"] .bdg`);
   if (row) setBadge(row, c);
 }
@@ -1125,39 +1170,85 @@ function repoWhere(r) {
   const rel = base && root.toLowerCase().startsWith(base.toLowerCase() + '/') ? root.slice(base.length + 1) : root;
   return rel === r.name ? '' : rel;
 }
-// The repository menu (header button): a filter box over the repositories, ✓ on the selected one,
-// a change-count badge on each; ↑ / ↓, Enter, Esc. Picking one switches the Git window to it.
+// The repository menu (header button): a filter box over the repositories, ✓ on the shown one(s), a
+// change-count badge on each. Click a name (or ↑ / ↓ Enter): that repository alone. Tick boxes (click,
+// or Space on the highlighted row) and "Show n": Local Changes of those together; "All repositories"
+// ticks every one (also repositories found later). Esc closes.
 function repoPicker(anchor) {
   const toggled = _pickClosed.anchor === anchor && Date.now() - _pickClosed.t < 400;
   _pickClosed = { anchor: null, t: 0 };
   if (toggled) return;  // this click's mousedown closed it
+  if (!G.repos.length) return;
   closePick();
   const box = el('div', 'gpick grepo');
   box.id = 'gitPick';
   box._anchor = anchor;
   box.innerHTML = '<input class="q" placeholder="filter repositories…" spellcheck="false"><div class="lst"></div>' +
-    `<div class="ft"><span class="note">${G.repos.length} repositories · ↑↓ Enter · Esc</span></div>`;
-  const lst = box.querySelector('.lst'), q = box.querySelector('.q');
+    '<div class="ft"><span class="note"></span><button data-a="none" title="untick all">clear</button><button data-a="show" class="primary"></button></div>';
+  const lst = box.querySelector('.lst'), q = box.querySelector('.q'), note = box.querySelector('.note'), showBtn = box.querySelector('[data-a="show"]');
+  const all = G.repos.map(r => r.root);
+  const shownNow = new Set(isMulti() ? multiRoots() : G.repo ? [G.repo.root] : []);
+  const sel = new Set(shownNow);  // the ticks
+  let allOn = isMulti() && !!S().repoAll;
   let act = -1, shown = [];
-  const cur = G.repo && G.repo.root;
+  const ALL = { all: true, root: '*', name: 'All repositories' };
+  const sync = () => {  // footer + the All row follow the ticks
+    allOn = sel.size === all.length;
+    const n = sel.size;
+    note.textContent = n > 1 ? `${n} of ${all.length} ticked` : `${all.length} repositories · Space ticks · Ctrl+Enter shows`;
+    showBtn.textContent = allOn ? 'Show all' : n > 1 ? `Show ${n}` : 'Show';
+    showBtn.disabled = !n;
+    const a = lst.querySelector('.it.all input'); if (a) { a.checked = allOn; a.indeterminate = !allOn && n > 0; }
+  };
   const render = () => {
     const t = q.value.trim().toLowerCase();
     shown = G.repos.filter(r => !t || r.name.toLowerCase().includes(t) || repoWhere(r).toLowerCase().includes(t));
+    if (!t && G.repos.length > 1) shown = [ALL].concat(shown);
+    const isCur = r => r.all ? isMulti() && S().repoAll : shownNow.has(r.root);
     lst.innerHTML = shown.map((r, i) => {
+      if (r.all) return `<div class="it all${isCur(r) ? ' cur' : ''}${i === act ? ' act' : ''}" data-i="${i}" title="Local Changes of every repository, grouped">` +
+        `<input type="checkbox" tabindex="-1"><span class="nm">${esc(r.name)}</span><span class="where">${all.length}</span><span class="hint">${isCur(r) ? '✓' : ''}</span></div>`;
       const where = repoWhere(r);
-      return `<div class="it${r.root === cur ? ' cur' : ''}${i === act ? ' act' : ''}" data-i="${i}" data-root="${esc(r.root)}" title="${esc(r.root)}">` +
-        `<span class="nm">${esc(r.name)}</span>${where ? `<span class="where">${esc(where)}</span>` : ''}` +
-        `<span class="hint">${r.root === cur ? '✓' : ''}</span><span class="bdg"></span></div>`;
+      return `<div class="it${isCur(r) ? ' cur' : ''}${i === act ? ' act' : ''}" data-i="${i}" data-root="${esc(r.root)}" title="${esc(r.root)}">` +
+        `<input type="checkbox" tabindex="-1"${sel.has(r.root) ? ' checked' : ''}><span class="nm">${esc(r.name)}</span>${where ? `<span class="where">${esc(where)}</span>` : ''}` +
+        `<span class="hint">${isCur(r) ? '✓' : ''}</span><span class="bdg"></span></div>`;
     }).join('') || '<div class="gw-empty">no repository matches</div>';
-    lst.querySelectorAll('.it').forEach(row => { const c = G.counts.get(row.dataset.root); setBadge(row.querySelector('.bdg'), c || (_qKeys.has('sum:' + row.dataset.root) ? 'loading' : null)); });
+    lst.querySelectorAll('.it[data-root]').forEach(row => { const c = G.counts.get(row.dataset.root); setBadge(row.querySelector('.bdg'), c || (_qKeys.has('sum:' + row.dataset.root) ? 'loading' : null)); });
+    sync();
   };
-  const choose = i => {
+  const tick = i => {
+    const r = shown[i];
+    if (!r) return;
+    if (r.all) { if (allOn) sel.clear(); else all.forEach(x => sel.add(x)); }
+    else if (sel.has(r.root)) sel.delete(r.root); else sel.add(r.root);
+    act = i;
+    render();
+  };
+  const apply = () => {
+    if (!sel.size) return;
+    closePick();
+    const roots = all.filter(x => sel.has(x));
+    if (sel.size === all.length && all.length > 1) return setRepoSet([], true);
+    setRepoSet(roots, false);
+  };
+  const choose = i => {  // a name: that repository alone (All: every one)
     const r = shown[i];
     if (!r) return;
     closePick();
-    if (r.root !== cur) selectRepo(r.root);
+    if (r.all) return setRepoSet([], true);
+    if (r.root !== (G.repo && G.repo.root) || isMulti()) selectRepo(r.root);
   };
-  lst.addEventListener('click', e => { const r = e.target.closest('.it'); if (r) choose(+r.dataset.i); });
+  lst.addEventListener('click', e => {
+    const r = e.target.closest('.it');
+    if (!r) return;
+    if (e.target.matches('input[type=checkbox]')) { e.preventDefault(); tick(+r.dataset.i); q.focus(); return; }
+    choose(+r.dataset.i);
+  });
+  box.querySelector('.ft').addEventListener('click', e => {
+    const a = e.target.dataset && e.target.dataset.a;
+    if (a === 'show') apply();
+    if (a === 'none') { sel.clear(); render(); q.focus(); }
+  });
   q.addEventListener('input', () => { act = -1; render(); });
   q.addEventListener('keydown', e => {
     const n = shown.length;
@@ -1166,12 +1257,17 @@ function repoPicker(anchor) {
       act = act < 0 ? (e.key === 'ArrowDown' ? 0 : n - 1) : (act + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
       render();
       const a = lst.querySelector('.act'); if (a) a.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === ' ' && act >= 0) {  // Space ticks the highlighted row (typing a filter clears the highlight)
+      e.preventDefault();
+      tick(act);
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      choose(act >= 0 ? act : 0);
+      if (e.ctrlKey || e.metaKey) apply();
+      else choose(act >= 0 ? act : shown.findIndex(r => !r.all));
     } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePick(); }
   });
-  act = Math.max(0, G.repos.findIndex(r => r.root === cur));
+  render();
+  act = Math.max(0, shown.findIndex(r => r.all ? isMulti() && S().repoAll : shownNow.has(r.root)));
   render();
   document.body.appendChild(box);
   const r = anchor.getBoundingClientRect(), w = box.getBoundingClientRect().width, h = box.getBoundingClientRect().height;
@@ -1179,9 +1275,32 @@ function repoPicker(anchor) {
   box.style.top = (r.bottom + h + 4 < innerHeight ? r.bottom + 2 : Math.max(4, r.top - h - 2)) + 'px';
   const a = lst.querySelector('.act'); if (a) a.scrollIntoView({ block: 'nearest' });
   q.focus();
-  countRepos(G.repos.map(x => x.root));
+  countRepos(all);
 }
-async function selectRepo(root, quiet) {
+// Several repositories at once (repository menu checkboxes, or All repositories): Local Changes shows
+// them together, grouped by repository; everything else in the window works on one repository.
+// STATE.git.repoAll, or STATE.git.repoMulti (roots); STATE.git.repo stays the single choice.
+function multiRoots() {
+  const s = S();
+  if (s.repoAll) return G.repos.map(r => r.root);
+  const want = new Set(Array.isArray(s.repoMulti) ? s.repoMulti : []);
+  return G.repos.filter(r => want.has(r.root)).map(r => r.root);  // menu order; gone ones drop out
+}
+const isMulti = () => G.repos.length > 1 && multiRoots().length > 1;
+// show these repositories together (2+), or one of them (1)
+async function setRepoSet(roots, all) {
+  if (!all && roots.length === 1) return selectRepo(roots[0]);
+  if (!all && !roots.length) return;
+  const s = S();
+  s.repoAll = !!all;
+  s.repoMulti = all ? [] : roots.slice();
+  saveState();
+  Changes.reset();
+  renderRepoBtn();
+  if (W && STATE.git.open) setTab(STATE.git.tab);
+}
+// keepSet: only G.repo changes (a dialog needs a repository); otherwise a single choice ends "several"
+async function selectRepo(root, quiet, keepSet) {
   let r = G.repos.find(x => x.root === root);
   if (!r) {
     const inf = await api('info', { repo: root });
@@ -1189,12 +1308,16 @@ async function selectRepo(root, quiet) {
     r = inf.repo;
     G.repos.push(r);
   }
+  const s = S(), was = isMulti();
+  if (!keepSet) { s.repoAll = false; s.repoMulti = []; }
+  const multi = isMulti();
   const changed = !G.repo || G.repo.root !== r.root;
   G.repo = r;
-  S().repo = r.root;
+  s.repo = r.root;
   saveState();
   renderRepoBtn();
-  if (changed) { G.status = null; G.refs = null; G.fp = ''; Log.reset(); Changes.reset(); Stash.reset(); closeHistory(true); }
+  if (changed) { G.status = null; G.refs = null; G.fp = ''; Log.reset(); Stash.reset(); closeHistory(true); }
+  if (changed && !multi || was && !multi) Changes.reset();
   if (!quiet && W && STATE.git.open) setTab(STATE.git.tab);
   updateBranch();
 }
@@ -1223,6 +1346,7 @@ async function refreshAll(user) {
   if (user) { G.info = null; G.info = await api('info'); }
   await loadStatus(true);
   await loadRefs();
+  if (isMulti()) loadMulti(true);
   if (STATE.git.open) {
     const t = STATE.git.tab;
     if (t === 'changes') Changes.render();
@@ -1254,6 +1378,7 @@ async function poll() {
       await loadStatus(false);
       if (STATE.git.open && STATE.git.tab === 'changes') Changes.render();
     }
+    if (_tick % 8 === 0 && isMulti() && STATE.git.open && STATE.git.tab === 'changes') loadMulti(false);
     if (_tick % 2 === 0) refreshDecor();
   } finally { _fpBusy = false; }
 }
@@ -1308,7 +1433,7 @@ const Changes = {
     });
     this.bar.addEventListener('click', e => {
       const a = e.target.dataset && e.target.dataset.a;
-      if (a === 'refresh') loadStatus(true).then(() => this.render());
+      if (a === 'refresh') { if (isMulti()) loadMulti(true); else loadStatus(true).then(() => this.render()); }
       if (a === 'diff') { const r = this.tree.selected(); if (r && r.file) this.diff(r); else showToast('select a file'); }
       if (a === 'expand') { this.tree.collapsed.clear(); this.tree.set(this.tree.groups, true); }
       if (a === 'collapse') { this.tree.rows.filter(r => !r.file).forEach(r => this.tree.collapsed.add(r.id)); this.tree.set(this.tree.groups, true); }
@@ -1318,16 +1443,19 @@ const Changes = {
     });
     this.built = true;
   },
-  diff(row) { const repo = G.repo; openTreeDiff(this.tree, row, f => specLocal(repo, f.raw), 'L:' + repo.root, f => descLocal(repo, f.raw), repo); },
+  // a file's repository: its own when several are shown (a diff window walks that repository's files only)
+  diff(row) { const repo = row.file.repo || G.repo; openTreeDiff(this.tree, row, f => specLocal(repo, f.raw), 'L:' + repo.root, f => descLocal(repo, f.raw), repo, !!row.file.repo); },
   select(row, force) {
     if (!row || !row.file || !this.pane) return;
-    const repo = G.repo, f = row.file;
+    const f = row.file, repo = f.repo || G.repo;
     this.pane.show(f, x => specLocal(repo, x.raw), 'L:' + repo.root + '|' + f.path, force);
   },
   agentFiles(action) {
-    const files = this.tree.checkedFiles().filter(f => action !== 'commit' || f.raw.kind !== 'conflicted').map(f => f.path);
-    if (!files.length) return showToast('tick the files first', true);
-    agentDialog(action, { files });
+    const ticked = this.tree.checkedFiles().filter(f => action !== 'commit' || f.raw.kind !== 'conflicted');
+    if (!ticked.length) return showToast('tick the files first', true);
+    const repos = new Set(ticked.map(f => (f.repo || G.repo).root));
+    if (repos.size > 1) return showToast(`the ticked files are in ${repos.size} repositories — ${action === 'commit' ? 'Commit' : 'Rollback'} goes to AgentO for one repository at a time: tick files of one`, true);
+    agentDialog(action, { files: ticked.map(f => f.path) }, ticked[0].repo || G.repo);
   },
   // the files a menu acts on: the selected files (several with Ctrl / Shift), or everything under a folder / group row
   targets(row) {
@@ -1336,13 +1464,38 @@ const Changes = {
     return row.group.files.filter(f => !row.dir || f.path.startsWith(row.dir + '/'));
   },
   // Commit for AgentO: a changelist's name and description are the message draft
-  commit(files, cl) {
+  commit(files, cl, repo) {
     files = files.filter(f => f.raw.kind !== 'conflicted').map(f => f.path);
     if (!files.length) return showToast('nothing to commit', true);
     const own = cl && cl.id !== 'default';
-    agentDialog('commit', { files, message: own ? cl.name : cl && cl.desc ? cl.desc.split('\n')[0] : '', body: own ? cl.desc : '' });
+    agentDialog('commit', { files, message: own ? cl.name : cl && cl.desc ? cl.desc.split('\n')[0] : '', body: own ? cl.desc : '' }, repo);
+  },
+  // several repositories: actions on files of one repository; changelists stay a one-repository view
+  menuMulti(e, f, row) {
+    const files = this.targets(row), repos = new Set(files.map(x => x.repo.root));
+    const repo = (f && f.repo) || row.group.repo, one = repos.size <= 1, single = files.length === 1 && row.file;
+    const raw = f && f.raw, key = raw && keyFor(repo, raw.path);
+    const why = one ? '' : 'files of one repository';
+    const mst = G.mst.get(repo.root) || {};
+    showMenu(e.clientX, e.clientY, [
+      { label: 'Commit… (AgentO)', hint: why, disabled: !one || !files.some(x => x.raw.kind !== 'conflicted'), run: () => this.commit(files, null, repo) },
+      { label: 'Rollback… (AgentO)', hint: why, disabled: !one || !files.length, run: () => agentDialog('rollback', { files: files.map(x => x.path) }, repo) },
+      { label: 'Show Diff', hint: single ? 'double-click / Enter' : why, disabled: !one || !files.length,
+        run: () => single ? this.diff(row) : openDiffWin(files.map(x => x.raw), 0, x => specLocal(repo, x), { ident: x => 'L:' + repo.root + '|' + x.path, repo, desc: x => descLocal(repo, x) }) },
+      ...(row.file ? [
+        { label: 'Open File', disabled: !single || !key || raw.kind === 'deleted', run: () => openFile(key) },
+        { label: 'Show History', disabled: !single || raw.kind === 'untracked' || raw.kind === 'added', run: () => openHistory(repo, raw.orig || raw.path) },
+        { label: 'Copy Path', run: () => copy(files.map(x => (one ? '' : x.repo.name + '/') + x.path).join('\n'), files.length > 1 ? 'paths' : 'path') },
+      ] : []),
+      'sep',
+      { label: `Show Only ${repo.name}`, hint: 'changelists, Log …', run: () => selectRepo(repo.root) },
+      { label: 'Resolve Conflict… (AgentO)', hint: why, disabled: !one || !files.some(x => x.raw.kind === 'conflicted'),
+        run: () => agentDialog('resolve', { files: files.filter(x => x.raw.kind === 'conflicted').map(x => x.path), state: mst.repo ? mst.repo.state : '' }, repo) },
+      { label: 'Refresh', run: () => loadMulti(true) },
+    ]);
   },
   menu(e, f, row) {
+    if (isMulti()) return this.menuMulti(e, f, row);
     const files = this.targets(row), g = row.group, cl = g.cl || null;
     const raw = f && f.raw, key = raw && keyFor(G.repo, raw.path);
     const lists = (G.status.changelists || {}).lists || [];
@@ -1443,11 +1596,67 @@ const Changes = {
   },
   async show() {
     if (!this.built) this.build();
+    if (isMulti()) {
+      this.render();
+      if (Date.now() - _multiT > 3000 || !multiRoots().some(r => G.mst.has(r))) loadMulti(false);
+      return;
+    }
     if (!G.status) { this.bar.querySelector('.sum').textContent = 'loading…'; await loadStatus(false); }
     this.render();
   },
+  renderSoon() { if (!this._soon) this._soon = setTimeout(() => { this._soon = 0; if (STATE.git.open && STATE.git.tab === 'changes') this.render(); }, 60); },
+  // several repositories: one group per repository with changes (name, branch, count; folds), files as usual
+  renderMulti() {
+    const roots = multiRoots(), byRoot = new Map(G.repos.map(r => [r.root, r]));
+    const groups = [];
+    let loading = 0, failed = 0, n = 0, withChanges = 0, eolAll = 0;
+    for (const root of roots) {
+      const repo = byRoot.get(root), st = G.mst.get(root);
+      if (!st) { loading++; continue; }
+      if (st.error) {
+        failed++;
+        groups.push({ id: 'r:' + root, label: repo.name, files: [], check: false, checkable: false, repo, note: errText(st.error), title: root });
+        continue;
+      }
+      const shown = shownFiles(st);
+      eolAll += st.eol_only || 0;
+      if (!shown.length) continue;
+      withChanges++;
+      n += shown.length - (S().showEol ? st.eol_only || 0 : 0);
+      const b = st.branch || {}, state = st.repo && st.repo.state;
+      const files = shown.map(f => ({ path: f.path, orig: f.orig, st: KIND_ST[f.kind] || 'M', cls: 'k-' + f.kind + (f.eol ? ' k-eol' : ''), raw: f, repo,
+        tag: f.eol ? 'line endings only' : f.kind === 'untracked' ? 'unversioned' : f.kind === 'conflicted' ? 'conflict' : f.staged && f.unstaged ? 'partly staged' : f.staged ? 'staged' : '' }));
+      groups.push({ id: 'r:' + root, label: repo.name, files, check: true, repo, title: root,
+        note: (b.detached ? 'detached ' + short(b.oid) : '⎇ ' + (b.head || '?')) + (b.upstream && (b.ahead || b.behind) ? ` ↑${b.ahead} ↓${b.behind}` : '') +
+          (state ? ' · ' + state.toUpperCase() : '') + (st.truncated ? ' · list cut' : '') });
+    }
+    const eb = this.bar.querySelector('[data-a="eol"]');
+    eb.classList.toggle('on', !!S().showEol);
+    eb.style.display = eolAll || S().showEol ? '' : 'none';
+    this.banner.style.display = 'none';
+    const sig = JSON.stringify([roots, loading, groups.map(g => [g.id, g.note, g.files.map(f => f.path + f.raw.x + f.raw.y + (f.raw.eol ? 'e' : ''))])]);
+    if (this._sig !== sig) {
+      this._sig = sig;
+      const ids = groups.flatMap(g => g.files.map(f => g.id + '|' + f.path));
+      if (!this._known) this.tree.set(groups, false);
+      else {  // keep the ticks; files new in the list start ticked
+        this.tree.checked = new Set(ids.filter(id => this.tree.checked.has(id) || !this._known.has(id)));
+        this.tree.set(groups, true);
+      }
+      this._known = new Set(ids);
+      if (!groups.length) this.tree.container.innerHTML = `<div class="gw-empty">${loading ? 'loading the repositories…' : 'no local changes in these repositories'}</div>`;
+      const sel = this.tree.selected();
+      if (sel && sel.file) this.select(sel, true); else this.pane.clear();
+    }
+    this.bar.querySelector('.sum').textContent = `${n} file${n === 1 ? '' : 's'} in ${withChanges} of ${roots.length} repositories` +
+      (loading ? ` · loading ${loading}…` : '') + (failed ? ` · ${failed} failed` : '') + (eolAll && !S().showEol ? ` · ${eolAll} line-ending-only hidden` : '');
+  },
   render() {
-    if (!this.built || !G.status) return;
+    if (!this.built) return;
+    const mode = isMulti() ? 'multi' : 'one';
+    if (this._mode !== mode) { this._mode = mode; this._sig = null; this._known = null; }
+    if (mode === 'multi') return this.renderMulti();
+    if (!G.status) return;
     const st = G.status;
     if (st.error) { this.tree.set([]); this.bar.querySelector('.sum').textContent = errText(st.error); return; }
     const mk = f => ({ path: f.path, orig: f.orig, st: KIND_ST[f.kind] || 'M', cls: 'k-' + f.kind + (f.eol ? ' k-eol' : ''), raw: f,
@@ -2250,7 +2459,7 @@ updateBranch = function () {
   sb.textContent = txt;
   sb.classList.toggle('gw-link', !!txt);
   const wb = W && W.head.querySelector('[data-a="branch"] .nm');
-  if (wb) {
+  if (wb && !isMulti()) {
     const b = st ? st.branch : null;
     wb.textContent = !b ? '…' : (b.head || 'detached ' + short(b.oid)) + (b.upstream && (b.ahead || b.behind) ? `  ↑${b.ahead} ↓${b.behind}` : '');
     const pb = W.head.querySelector('[data-a="pull"]');
@@ -2266,7 +2475,7 @@ async function branchPopup(anchor, repo) {
     const doc = currentDoc();
     if (doc && doc.gitRepo) {
       const inf = await api('info', { path: doc.key });
-      if (inf.repo && (!G.repo || G.repo.root !== inf.repo.root)) await selectRepo(inf.repo.root, true);
+      if (inf.repo && (!G.repo || G.repo.root !== inf.repo.root)) await selectRepo(inf.repo.root, true, true);
     }
     if (!G.repo) { await loadRepos(); if (!G.repo) return showToast('no git repository here', true); }
     repo = G.repo;
@@ -2295,7 +2504,7 @@ async function branchPopup(anchor, repo) {
     if (v === 'act:fetch') return gitFetch(repo);
     if (v === 'act:log') return (async () => { if (!G.repo || G.repo.root !== repo.root) await selectRepo(repo.root, true); openTab('log'); })();
     if (v === 'act:newBranch' || v === 'act:push') return (async () => {
-      if (!G.repo || G.repo.root !== repo.root) await selectRepo(repo.root, true);
+      if (!G.repo || G.repo.root !== repo.root) await selectRepo(repo.root, true, true);
       if (v === 'act:newBranch') agentDialog('newBranch', {}); else agentDialog('push', { branch: b.head, upstream: b.upstream });
     })();
     if (it.current) return showToast('already on ' + it.label);
@@ -2638,11 +2847,13 @@ const GIT_COMMANDS = [
   { id: 'git.repo', cat: 'Git', title: 'Choose Repository…', run: async () => {
     await loadRepos();
     if (!G.repos.length) return showToast('no git repository in or around the open folder', true);
-    pickList(document.getElementById('sbBranch'), G.repos.map(r => ({ value: r.root, label: r.name, hint: r.root })), { placeholder: 'repository…',
-      onPick: v => { selectRepo(v); if (!STATE.git.open) toggleWindow(true); } });
+    if (!STATE.git.open) toggleWindow(true);
+    renderRepoBtn();
+    repoPicker(W.repoBtn.style.display === 'none' ? document.getElementById('sbBranch') : W.repoBtn);
   } },
   { id: 'git.agentCommit', cat: 'Git', title: 'Commit… (AgentO)', run: async () => {
     if (!(await ensureRepoForCommand())) return;
+    if (isMulti()) return Changes.built ? Changes.agentFiles('commit') : showToast('several repositories are shown — tick files of one in Local Changes', true);
     const st = G.status;
     const ticked = Changes.built && Changes.tree ? Changes.tree.checkedFiles().map(f => f.path) : [];
     const files = ticked.length ? ticked : shownFiles(st).filter(f => f.kind !== 'untracked' && f.kind !== 'conflicted').map(f => f.path);
@@ -2651,6 +2862,7 @@ const GIT_COMMANDS = [
   } },
   { id: 'git.agentPush', cat: 'Git', title: 'Push… (AgentO)', run: async () => {
     if (!(await ensureRepoForCommand())) return;
+    if (isMulti()) return showToast('several repositories are shown — choose one in the repository menu to push it', true);
     const b = G.status.branch || {};
     agentDialog('push', { branch: b.head, upstream: b.upstream });
   } },
@@ -2790,7 +3002,7 @@ function renderTB() {
   set('gtbPull', TB.busy || pullWhy, TB.busy ? 'Pull — running…' : 'Pull (git pull --ff-only: fast-forward only)' +
     (b && b.behind ? ` — ↓${b.behind} known` : '') + (pullWhy ? '\n— ' + pullWhy : ''));
   document.getElementById('gtbPull').classList.toggle('busy', TB.busy);
-  if (W) W.head.querySelectorAll('[data-a="pull"],[data-a="fetch"],[data-a="branch"]').forEach(x => { x.disabled = TB.busy; x.classList.toggle('busy', TB.busy); });
+  if (W) W.head.querySelectorAll('[data-a="pull"],[data-a="fetch"],[data-a="branch"]').forEach(x => { x.disabled = TB.busy || isMulti(); x.classList.toggle('busy', TB.busy); });
   const commitWhy = !repo || !st ? 'not in a git repository' : !commitable.length ? 'no local changes' : '';
   set('gtbCommit', commitWhy, `Commit… — AgentO에 요청(head coach에게 전달)` + (commitable.length ? ` · ${commitable.length} changed file(s)` : '') + (commitWhy ? '\n— ' + commitWhy : ''));
   const pushWhy = !repo || !st ? 'not in a git repository' : !b.head ? PULL_WHY.detached : b.upstream && !b.ahead ? 'nothing to push (↑0)' : '';
@@ -2867,7 +3079,7 @@ async function gitFailDialog(title, d, repo, extraButtons) {
   const v = choiceOf(await askChoice(title, whyText(d) + eolHelp(d) + (out ? '\n\ngit:\n' + out : ''),
     [...(extraButtons || []), { label: 'show Console', value: 'console' }, { label: 'ok', value: 'ok', primary: true }]));
   if (v === 'console' || v === 'stash') {
-    if (!G.repo || G.repo.root !== repo.root) await selectRepo(repo.root, true);
+    if (!G.repo || G.repo.root !== repo.root) await selectRepo(repo.root, true, true);
     if (v === 'console') openTab('console'); else agentDialog('stashPush');
   }
 }
@@ -3047,12 +3259,18 @@ function init() {
   window.onFolderOpened = function () {
     if (prevOpened) prevOpened();
     G.repos = []; G.repo = null; G.status = null; G.refs = null; G.fp = ''; G.decor = { files: {}, dirs: {} };
+    G.mst.clear(); G.counts.clear(); S().repoAll = false; S().repoMulti = [];
     _repoByDir.clear(); TB.key = null; TB.repo = null; TB.st = null;
     Log.reset(); Changes.reset(); Stash.reset(); closeHistory(true);
     S().repo = '';
     (async () => { await loadRepos(); if (STATE.git.open) start(); refreshDecor(); })();
   };
-  window.addEventListener('focus', () => { if (G.repo) { loadStatus(true).then(() => { if (STATE.git.open && STATE.git.tab === 'changes') Changes.render(); }); refreshDecor(); } });
+  window.addEventListener('focus', () => {
+    if (!G.repo) return;
+    loadStatus(true).then(() => { if (STATE.git.open && STATE.git.tab === 'changes') Changes.render(); });
+    if (isMulti() && STATE.git.open && Date.now() - _multiT > 5000) loadMulti(true);
+    refreshDecor();
+  });
   (async () => {
     G.info = await api('info');
     if (!G.info.available) { if (STATE.git.open) start(); return; }
@@ -3075,6 +3293,6 @@ function init() {
   setInterval(() => { G.conflicts.forEach(k => { const d = docs.get(k); if (d && !_confDecos.has(k)) markConflicts(d); }); }, 2000);
 }
 window.GitUI = { G, DW, get DM() { return dmFront(); }, openDiffWin, openPanelWin, closeDiffModal, closeDiffWin, diffModalOpen, toggleWindow, setTab, openHistory, toggleBlame, clearBlame, blameAt, openBlameCommit, toggleLineBlame, updateLineBlame, agentDialog, refreshAll, laneStep, get Log() { return Log; }, get History() { return History; }, Changes, Stash,
-  get useDeeplink() { return USE_DEEPLINK; }, set useDeeplink(v) { USE_DEEPLINK = !!v; }, selectRepo, get S() { return S(); }, get DV() { return [...DV]; } };
+  get useDeeplink() { return USE_DEEPLINK; }, set useDeeplink(v) { USE_DEEPLINK = !!v; }, selectRepo, setRepoSet, repoPicker, isMulti, multiRoots, get S() { return S(); }, get DV() { return [...DV]; } };
 init();
 })();

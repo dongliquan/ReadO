@@ -200,6 +200,18 @@ body.theme-dark .gw-banner { background: #3d2f1c; color: #f0c27a; border-color: 
 .grepo .it .hint { color: var(--accent); min-width: 10px; }
 .grepo .ft { justify-content: flex-start; align-items: center; }
 .grepo .ft .note { color: var(--text-mute); font-size: 11px; margin-right: auto; }
+.grepo .it input[type=checkbox] { margin: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+.grepo .it.all { border-bottom: 1px solid var(--border); padding-top: 4px; padding-bottom: 5px; margin-bottom: 2px; }
+.grepo .it.all .nm { font-weight: 700; }
+.grepo .ft button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.grepo .ft button:disabled { opacity: .5; cursor: default; }
+.gw-repo.multi .nm { color: var(--accent); }
+.gw-ibtn:disabled { opacity: .45; cursor: default; background: transparent; }
+/* several repositories in Local Changes: branch / state after the repository name; "show one" buttons */
+.gt-row.group .gnote { font: 11px var(--mono); margin-left: 6px; flex: 0 1 auto; min-width: 0; }
+.gw-one { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 10px; }
+.gw-one button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 4px; padding: 2px 10px; cursor: pointer; font: 12px var(--mono); }
+.gw-one button:hover { background: var(--hover); border-color: var(--accent); }
 .gcl-dlg { width: min(460px, 92vw); }
 .gcl-dlg label { display: block; font-size: 12px; color: var(--text-mute); margin-top: 8px; }
 .gcl-dlg label input.nm { display: block; width: 100%; box-sizing: border-box; margin-top: 3px; padding: 4px 6px; font-size: 13px;

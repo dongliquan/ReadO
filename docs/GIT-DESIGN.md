@@ -784,6 +784,20 @@ git에는 changelist가 없다. IntelliJ처럼 Local Changes를 묶어 보는 Re
 | 우클릭 메뉴 | 파일·폴더·그룹 공통: Commit… (AgentO), Rollback… (AgentO), Show Diff, (파일) Open File·Show History·Copy Path, Move to Changelist…, New Changelist…, Edit Changelist…, Delete Changelist, Set Active Changelist, Resolve Conflict… (AgentO), Refresh. 대상이 맞지 않는 항목은 회색이다 |
 | Commit·Rollback | 기존 AgentO 지시문 대화상자(`agentDialog`) 그대로, 대상은 그 목록(또는 선택) 파일만이다. 파일들이 한 사용자 목록에 있으면 목록 이름이 커밋 메시지 초안, 설명이 본문 초안이 된다. Rollback은 "diff를 보여 주고 확인을 받아 줘" 규칙 그대로다. Shelve는 이번 범위가 아니다 |
 
+<a id="sec-14-7"></a>
+
+## 14.7 저장소 선택 메뉴 (2026-11-03)
+
+Git 창 머리의 저장소 선택이 네이티브 `<select>`였다. 펼친 목록이 OS 기본 모양(흰 배경)이라 옆 브랜치 메뉴·앱 테마와 달랐다. 브랜치 메뉴와 같은 팝업(`.gpick`, 테마 변수)으로 바꿨다.
+
+| 항목 | 내용 |
+|---|---|
+| 버튼 | `.gw-repo` 버튼: 선택한 저장소 이름 + 변경 수 배지 + ▾. 저장소가 하나면 숨긴다(이전과 같음). 툴팁은 저장소 경로 |
+| 메뉴 | 필터 입력(이름·폴더 경로), 저장소마다 이름 · 열린 폴더 기준 위치(이름과 다를 때) · 선택 표시 ✓ · 변경 수 배지. 충돌이 있으면 빨간 배지, 세는 중이면 `…`. 줄바꿈만 다른 파일은 Local Changes처럼 숨김 설정을 따른다 |
+| 키보드 | 열면 필터에 포커스, 현재 저장소가 강조된다. ↑↓ 이동, Enter 선택(필터 결과의 첫 항목 포함), Esc 닫기. 버튼을 다시 누르면 닫힌다 |
+| 동작 | 고르면 기존 `selectRepo` 그대로: Git 창 전환, `state.json`의 `git.repo` 저장 |
+| 배지 데이터 | `GET /api/git/summary?repo=` — `status()`(캐시, 저장소별 1회 실행 잠금, git 게이트)를 그대로 쓰고 파일 목록 없이 `{n, eol, conflicts, truncated, branch, state}`만 준다. 페이지는 메뉴를 열 때 15초보다 오래된 것만 다시 묻고, 동시에 3개까지만 보낸다(같은 저장소는 하나로 합친다). 선택한 저장소는 `/status` 응답으로도 갱신된다 |
+
 <a id="sec-14-3"></a>
 
 ## 14.3 AgentO 딥링크 요청 스펙(v1, 초안 — AgentO 구현과 맞춰 확정)

@@ -403,6 +403,63 @@ def changelist_ui_tests(pg, ev, shot, toast, base):
     ev("GitUI.toggleWindow(false)")
 
 
+def repo_menu_tests(pg, shot):
+    """The repository menu in the Git window header: a themed popup (not a native select) with a filter,
+    the selected repository marked, change-count badges, ↑ / ↓ Enter Esc; picking one switches the window."""
+    ev = pg.evaluate
+    BTN, BOX = "#gitWin .gw-repo", "#gitPick.grepo"
+    names = lambda: ev(f"[...document.querySelectorAll('{BOX} .it .nm')].map(n => n.textContent)")
+    check(ev(f"document.querySelector('{BTN}').tagName") == "BUTTON" and not ev("!!document.querySelector('#gitWin select')"),
+          "repository chooser is a button, no native <select>")
+    check(ev(f"document.querySelector('{BTN} .nm').textContent") == "basic", "button shows the selected repository")
+    pg.click(BTN)
+    pg.wait_for_selector(BOX)
+    n_repos = ev("GitUI.G.repos.length")
+    check(len(names()) == n_repos, f"menu lists every repository ({len(names())}/{n_repos})")
+    check(ev(f"(() => {{ const c = document.querySelector('{BOX} .it.cur'); return c && c.querySelector('.nm').textContent === 'basic' && c.classList.contains('act') && c.textContent.includes('✓'); }})()"),
+          "selected repository marked (✓, highlighted for the keyboard)")
+    check(ev(f"document.activeElement === document.querySelector('{BOX} input.q')"), "filter box has the focus")
+    for theme in ("light", "dark"):
+        ev(f"document.body.classList.contains('theme-{theme}') || runCommand('view.theme')")
+        pg.wait_for_function(f"document.body.classList.contains('theme-{theme}')")
+        same = ev(f"getComputedStyle(document.querySelector('{BOX}')).backgroundColor === getComputedStyle(document.querySelector('#gitWin')).backgroundColor"
+                  f" && getComputedStyle(document.querySelector('{BOX}')).backgroundColor === getComputedStyle(document.getElementById('gitPick')).backgroundColor")
+        check(same, f"{theme} theme: menu uses the window's panel colour (theme variables)")
+        pg.wait_for_function(f"(() => {{ const b = [...document.querySelectorAll('{BOX} .it')].find(r => r.querySelector('.nm').textContent === 'basic'); return b && /^\\d+$/.test(b.querySelector('.bdg').textContent); }})()", timeout=20000)
+        shot(f"r1-repo-menu-{theme}")
+    pg.wait_for_function(f"(() => {{ const b = [...document.querySelectorAll('{BOX} .it')].find(r => r.querySelector('.nm').textContent === 'conflict'); return b && b.querySelector('.bdg.con'); }})()", timeout=20000)
+    badge = ev(f"(() => {{ const b = [...document.querySelectorAll('{BOX} .it')].find(r => r.querySelector('.nm').textContent === 'basic'); return +b.querySelector('.bdg').textContent; }})()")
+    want = ev("GitUI.G.status.files.filter(f => !f.eol).length")
+    check(badge == want, f"badge = changed files of the repository ({badge} = {want}); conflicts in red")
+    check(ev(f"document.querySelector('{BTN} .bdg').textContent") == str(want), "header button carries the same badge")
+    pg.fill(f"{BOX} input.q", "bra")
+    check(names() == ["branches"], f"filter narrows the list ({names()})")
+    pg.fill(f"{BOX} input.q", "zzz-none")
+    check("no repository matches" in pg.inner_text(BOX), "filter without a match says so")
+    pg.fill(f"{BOX} input.q", "")
+    pg.keyboard.press("Escape")
+    check(not ev(f"!!document.querySelector('{BOX}')"), "Esc closes the menu")
+    pg.click(BTN)
+    pg.wait_for_selector(BOX)
+    pg.click(BTN)
+    check(not ev(f"!!document.querySelector('{BOX}')"), "a second click on the button closes it")
+    pg.click(BTN)
+    pg.wait_for_selector(BOX)
+    pg.fill(f"{BOX} input.q", "conf")
+    pg.keyboard.press("ArrowDown")
+    pg.keyboard.press("Enter")
+    pg.wait_for_function("GitUI.G.repo.name === 'conflict' && GitUI.G.status && GitUI.G.status.repo", timeout=10000)
+    check(not ev(f"!!document.querySelector('{BOX}')") and ev(f"document.querySelector('{BTN} .nm').textContent") == "conflict",
+          "↓ Enter picks the repository: menu closes, the window switches")
+    check(ev("GitUI.S.repo") == ev("GitUI.G.repo.root"), "choice saved in state.json (git.repo)")
+    pg.click(BTN)
+    pg.wait_for_selector(BOX)
+    pg.click(f"{BOX} .it:has(.nm:text-is('basic'))")
+    pg.wait_for_function("GitUI.G.repo.name === 'basic'", timeout=10000)
+    check(True, "click picks a repository")
+    ev("document.body.classList.contains('theme-dark') && runCommand('view.theme')")
+
+
 def find_dialog_tests(pg, ev, shot, base):
     """Find File (Ctrl+P) and Find in Files (Ctrl+Shift+F): one frame, switching keeps the text, prefixes, options saved."""
     QO, FIF = "document.getElementById('qoBg').classList.contains('show')", "document.getElementById('fifBg').classList.contains('show')"
@@ -532,8 +589,7 @@ def readonly_text_tests(pg, shot):
     ev("window._clip = []; navigator.clipboard.writeText = t => { _clip.push(t); return Promise.resolve(); }")
     clip = lambda: ev("_clip[_clip.length - 1] || ''")
     ev("GitUI.toggleWindow(true)")
-    ev("document.querySelector('#gitWin .gw-repo').value = GitUI.G.repos.find(r => r.name === 'basic').root;"
-       "document.querySelector('#gitWin .gw-repo').dispatchEvent(new Event('change'))")
+    ev("GitUI.selectRepo(GitUI.G.repos.find(r => r.name === 'basic').root)")
     ev("GitUI.setTab('log')")
     LOG = "#gitWin [data-page=log]"
     pg.wait_for_selector(LOG + " .gl-row", timeout=20000)
@@ -846,14 +902,17 @@ def main():
         pg.evaluate("GitUI.toggleWindow(true)")
         pg.wait_for_selector("#gitWin.show")
         pg.wait_for_function("GitUI.G.repo && GitUI.G.repos.length >= 6", timeout=20000)
-        pg.evaluate("document.querySelector('#gitWin .gw-repo').value = GitUI.G.repos.find(r => r.name === 'basic').root;"
-                    "document.querySelector('#gitWin .gw-repo').dispatchEvent(new Event('change'))")
+        pg.evaluate("GitUI.selectRepo(GitUI.G.repos.find(r => r.name === 'basic').root)")
         pg.evaluate("GitUI.setTab('changes')")
         pg.wait_for_function("document.querySelectorAll('#gitWin [data-page=changes] .gt-row').length > 5", timeout=20000)
         txt = pg.inner_text("#gitWin [data-page=changes]")
         check("Unversioned Files" in txt and "app.py" in txt and "설명 파일.txt" in txt, "groups + files (Korean name)")
         check("partly staged" in txt or "staged" in txt, "staged marker")
         shot("1-local-changes")
+        print("== repository menu")
+        repo_menu_tests(pg, shot)
+        pg.evaluate("GitUI.setTab('changes')")
+        pg.wait_for_function("document.querySelectorAll('#gitWin [data-page=changes] .gt-row').length > 5", timeout=20000)
         print("== Local Changes: file tree | diff (split)")
         PANE = "GitUI.Changes.pane"
         PANE_READY = PANE + ".ed && " + PANE + ".ed.getModel() && " + PANE + ".bg.querySelector('.gdm-msg').style.display === 'none'"
@@ -1029,8 +1088,7 @@ def main():
         pg.click(".gx-dlg [data-a=cancel]")
 
         print("== Log (branches repo)")
-        pg.evaluate("document.querySelector('#gitWin .gw-repo').value = GitUI.G.repos.find(r => r.name === 'branches').root;"
-                    "document.querySelector('#gitWin .gw-repo').dispatchEvent(new Event('change'))")
+        pg.evaluate("GitUI.selectRepo(GitUI.G.repos.find(r => r.name === 'branches').root)")
         pg.evaluate("GitUI.setTab('log')")
         pg.wait_for_function("document.querySelectorAll('#gitWin [data-page=log] .gl-row').length >= 15", timeout=20000)
         check(pg.evaluate("document.querySelectorAll('#gitWin [data-page=log] .gl-row svg path').length > 20"), "graph drawn")
@@ -1066,8 +1124,7 @@ def main():
         pg.wait_for_function("GitUI.Log.rows.length >= 15", timeout=10000)
 
         print("== Log: several commits selected (Ctrl / Shift)")
-        pg.evaluate("document.querySelector('#gitWin .gw-repo').value = GitUI.G.repos.find(r => r.name === 'basic').root;"
-                    "document.querySelector('#gitWin .gw-repo').dispatchEvent(new Event('change'))")
+        pg.evaluate("GitUI.selectRepo(GitUI.G.repos.find(r => r.name === 'basic').root)")
         pg.evaluate("GitUI.setTab('log')")
         pg.wait_for_function("GitUI.G.repo.name === 'basic' && GitUI.Log.rows.length === 20 && document.querySelector('#gitWin [data-page=log] .gl-row')", timeout=20000)
         ROW = lambda i: f"#gitWin [data-page=log] .gl-row[data-i='{i}']"
@@ -1139,8 +1196,7 @@ def main():
         check(pg.evaluate("GitUI.DM.bg.querySelector('.gdm-hash').textContent") == pg.evaluate("GitUI.Log.rows[1].c.h.slice(0, 8)"), "single commit: file diff as before")
         pg.keyboard.press("Escape")
         pg.wait_for_function("!(" + MODAL + ")", timeout=5000)
-        pg.evaluate("document.querySelector('#gitWin .gw-repo').value = GitUI.G.repos.find(r => r.name === 'branches').root;"
-                    "document.querySelector('#gitWin .gw-repo').dispatchEvent(new Event('change'))")
+        pg.evaluate("GitUI.selectRepo(GitUI.G.repos.find(r => r.name === 'branches').root)")
         pg.wait_for_function("GitUI.G.repo.name === 'branches' && GitUI.Log.rows.length >= 15", timeout=20000)
 
         print("== Log columns: resize / show-hide / saved")
@@ -1225,8 +1281,7 @@ def main():
 
         print("== Log (30k commits): paging + virtual scroll")
         t0 = time.time()
-        pg.evaluate("document.querySelector('#gitWin .gw-repo').value = GitUI.G.repos.find(r => r.name === 'huge').root;"
-                    "document.querySelector('#gitWin .gw-repo').dispatchEvent(new Event('change'))")
+        pg.evaluate("GitUI.selectRepo(GitUI.G.repos.find(r => r.name === 'huge').root)")
         pg.evaluate("GitUI.setTab('log')")
         try:
             pg.wait_for_function("GitUI.Log.rows.length >= 300", timeout=30000)
@@ -1390,8 +1445,7 @@ def main():
         shot("7f-blame-tip-body")
         pg.mouse.move(5, 5)
         pg.evaluate("GitUI.clearBlame(currentDoc())")
-        pg.evaluate("document.querySelector('#gitWin .gw-repo').value = GitUI.G.repos.find(r => r.name === 'branches').root;"
-                    "document.querySelector('#gitWin .gw-repo').dispatchEvent(new Event('change'))")
+        pg.evaluate("GitUI.selectRepo(GitUI.G.repos.find(r => r.name === 'branches').root)")
         pg.evaluate("GitUI.setTab('stash')")
         pg.wait_for_function("document.querySelectorAll('#gitWin .st-list .gt-row').length === 1", timeout=10000)
         pg.click("#gitWin .st-list .gt-row")
@@ -1408,8 +1462,7 @@ def main():
         shot("8-console")
 
         print("== conflicts + tree colours + status bar")
-        pg.evaluate("document.querySelector('#gitWin .gw-repo').value = GitUI.G.repos.find(r => r.name === 'conflict').root;"
-                    "document.querySelector('#gitWin .gw-repo').dispatchEvent(new Event('change'))")
+        pg.evaluate("GitUI.selectRepo(GitUI.G.repos.find(r => r.name === 'conflict').root)")
         pg.evaluate("GitUI.setTab('changes')")
         pg.wait_for_function("document.querySelector('#gitWin [data-page=changes] .gw-banner').style.display === ''", timeout=10000)
         check("MERGING" in pg.inner_text("#gitWin [data-page=changes] .gw-banner"), "merge banner")
@@ -1464,8 +1517,7 @@ def main():
         gitview.DIFFWIN.backend = FakeBE()
         try:
             pg.evaluate("GitUI.G.nativeWin = undefined; while (GitUI.DW.wins.length) GitUI.closeDiffWin(GitUI.DW.wins[0]); GitUI.toggleWindow(true)")
-            pg.evaluate("document.querySelector('#gitWin .gw-repo').value = GitUI.G.repos.find(r => r.name === 'basic').root;"
-                        "document.querySelector('#gitWin .gw-repo').dispatchEvent(new Event('change'))")
+            pg.evaluate("GitUI.selectRepo(GitUI.G.repos.find(r => r.name === 'basic').root)")
             pg.evaluate("GitUI.setTab('changes')")
             pg.wait_for_selector("#gitWin [data-page=changes] .gt-row:has-text('app.py')", timeout=20000)
             pg.dblclick("#gitWin [data-page=changes] .gt-row:has-text('app.py')")

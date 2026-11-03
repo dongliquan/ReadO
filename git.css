@@ -27,8 +27,17 @@ body.theme-dark {
 .gw-tab .x { margin-left: 6px; color: var(--text-mute); }
 .gw-tab .x:hover { color: var(--g-con); }
 .gw-spacer { flex: 1; }
-.gw-repo { max-width: 260px; font: 12px var(--mono); background: transparent; color: var(--text); border: 1px solid var(--border);
-  border-radius: 4px; padding: 1px 4px; margin-right: 4px; }
+.gw-repo { display: inline-flex; align-items: center; gap: 5px; max-width: 260px; height: 22px; font: 12px var(--mono);
+  background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; margin-right: 4px; cursor: pointer; }
+.gw-repo:hover { background: var(--hover); }
+.gw-repo .nm { overflow: hidden; text-overflow: ellipsis; }
+.gw-repo .car { color: var(--text-mute); font-size: 10px; }
+.gw-repo:disabled { opacity: .5; cursor: default; }
+/* change-count badge (repository button and menu) */
+.bdg { flex: none; min-width: 16px; height: 16px; line-height: 16px; box-sizing: border-box; padding: 0 5px; border-radius: 8px;
+  font: 700 10px var(--mono); text-align: center; color: var(--g-mod); background: var(--g-sel); }
+.bdg.con { color: #fff; background: var(--g-con); }
+.bdg.ld { color: var(--text-mute); background: transparent; font-weight: 400; }
 .gw-ibtn { border: 1px solid transparent; background: transparent; color: var(--text-dim); border-radius: 4px; height: 24px;
   min-width: 24px; padding: 0 6px; cursor: pointer; font-size: 12px; }
 .gw-ibtn:hover { background: var(--hover); color: var(--text); }
@@ -184,6 +193,13 @@ body.theme-dark .gw-banner { background: #3d2f1c; color: #f0c27a; border-color: 
 .gt-row .tag.act { color: var(--accent); border-color: var(--accent); font-weight: 400; }
 .gt-row.drop-on { outline: 1px dashed var(--accent); outline-offset: -1px; background: var(--g-sel); }
 .gpick .it.new .nm { color: var(--accent); }
+/* repository menu (Git window header) */
+.grepo { width: 340px; }
+.grepo .it .nm { flex: 0 1 auto; min-width: 0; }
+.grepo .it .where { color: var(--text-mute); font-size: 11px; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.grepo .it .hint { color: var(--accent); min-width: 10px; }
+.grepo .ft { justify-content: flex-start; align-items: center; }
+.grepo .ft .note { color: var(--text-mute); font-size: 11px; margin-right: auto; }
 .gcl-dlg { width: min(460px, 92vw); }
 .gcl-dlg label { display: block; font-size: 12px; color: var(--text-mute); margin-top: 8px; }
 .gcl-dlg label input.nm { display: block; width: 100%; box-sizing: border-box; margin-top: 3px; padding: 4px 6px; font-size: 13px;

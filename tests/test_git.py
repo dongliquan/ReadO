@@ -118,6 +118,17 @@ def fx_tests(c, fx):
     code, d, _ = c.git("status", repo=R("branches"))
     check(d.get("branch", {}).get("ahead") == 1 and d["branch"].get("upstream") == "origin/main", "ahead 1 of origin/main")
 
+    print("== summary (repository menu badges)")
+    _, st, _ = c.git("status", repo=R("basic"))
+    code, d, _ = c.git("summary", repo=R("basic"))
+    check(code == 200 and d.get("n") == len(st.get("files", [])) and d.get("eol") == st.get("eol_only")
+          and d.get("conflicts") == 0 and "files" not in d, f"summary: counts without the file list (n={d.get('n')})")
+    check(d.get("branch", {}).get("head") == "main" and d.get("root") == st.get("repo", {}).get("root"), "summary: branch + root")
+    code, d, _ = c.git("summary", repo=R("conflict"))
+    check(d.get("conflicts", 0) >= 1 and d.get("state") == "merging", "summary: conflicts + state")
+    code, d, _ = c.git("summary", repo=fx["basic"] + "/../..")
+    check(code == 400 and d.get("error") == "not_repo", f"summary: outside the open folder refused ({code} {d.get('error')})")
+
     print("== tree colours")
     code, d, _ = c.git("decor", dir=["basic", "basic/src"])
     check(d.get("files", {}).get("basic/src/app.py") == "M", "decor: modified file")

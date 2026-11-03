@@ -20,6 +20,7 @@ const G = {
   decor: { files: {}, dirs: {} },
   blame: new Map(),    // doc key -> {data, decos, css}
   conflicts: new Set(),// ReadO keys of conflicted files (editor markers)
+  counts: new Map(),   // root -> {n, eol, conflicts, truncated, t} | {error, t}: badges of the repository menu
 };
 const S_DEFAULTS = { open: false, tab: 'changes', h: 300, repo: '', bw: 220, dw: 380, cw: 420, inline: false, ignoreWs: false, lineBlame: false,
   ignoreEol: true, showEol: false };
@@ -390,7 +391,13 @@ function pickList(anchor, items, opts) {
   q.focus();
 }
 function closePick() { const b = document.getElementById('gitPick'); if (b) b.remove(); }
-window.addEventListener('mousedown', e => { if (!(e.target.closest && e.target.closest('#gitPick'))) closePick(); }, true);
+let _pickClosed = { anchor: null, t: 0 };  // a click on the button that opened a popup closes it (not close + reopen)
+window.addEventListener('mousedown', e => {
+  if (e.target.closest && e.target.closest('#gitPick')) return;
+  const b = document.getElementById('gitPick');
+  if (b) _pickClosed = { anchor: b._anchor || null, t: Date.now() };
+  closePick();
+}, true);
 
 // ---------- diff views (Monaco diff editor in ReadO's diff overlay) ----------
 async function showText(repo, rev, path) {
@@ -943,7 +950,7 @@ function buildWindow() {
     <span class="gw-tab" data-tab="stash">Stash</span>
     <span class="gw-tab" data-tab="console">Console</span>
     <span class="gw-spacer"></span>
-    <select class="gw-repo" title="repository"></select>
+    <button class="gw-repo" data-a="repo" title="repository"><span class="nm">…</span><span class="bdg" style="display:none"></span><span class="car">▾</span></button>
     <button class="gw-ibtn gw-br" data-a="branch" title="branches: check out, pull, fetch">⎇ <span class="nm">…</span></button>
     <button class="gw-ibtn" data-a="pull" title="Pull (git pull --ff-only: fast-forward only)">↓ Pull</button>
     <button class="gw-ibtn" data-a="fetch" title="Fetch (git fetch --prune)">Fetch</button>
@@ -960,7 +967,7 @@ function buildWindow() {
     <div class="gw-page" data-page="msg"><div class="gw-msg"></div></div>
    </div>`;
   document.body.insertBefore(gw, document.getElementById('statusbar'));
-  W = { gw, head: gw.querySelector('.gw-head'), repoSel: gw.querySelector('.gw-repo'), pages: {} };
+  W = { gw, head: gw.querySelector('.gw-head'), repoBtn: gw.querySelector('.gw-repo'), pages: {} };
   gw.querySelectorAll('.gw-page').forEach(p => { W.pages[p.dataset.page] = p; });
   gw.style.height = Math.max(120, Math.min(S().h, innerHeight - 200)) + 'px';
   W.head.addEventListener('click', e => {
@@ -970,6 +977,7 @@ function buildWindow() {
       return setTab(tab.dataset.tab);
     }
     const btn = e.target.closest('[data-a]'), a = btn && btn.dataset.a;
+    if (a === 'repo') repoPicker(btn);
     if (a === 'close') toggleWindow(false);
     if (a === 'refresh') refreshAll(true);
     if (a === 'branch' && G.repo) branchPopup(btn, G.repo);
@@ -977,7 +985,6 @@ function buildWindow() {
     if (a === 'fetch' && G.repo) gitFetch(G.repo);
     if (a === 'agent') agentMenu(e.target);
   });
-  W.repoSel.addEventListener('change', () => selectRepo(W.repoSel.value));
   // resize by the top edge
   const sash = gw.querySelector('.gw-sash');
   sash.addEventListener('mousedown', e => {
@@ -1053,15 +1060,126 @@ async function loadRepos() {
     want = inf && inf.repo ? inf.repo.root : (G.repos[0] || {}).root;
     if (inf && inf.repo && !G.repos.some(r => r.root === inf.repo.root)) G.repos.unshift(inf.repo);
   }
-  renderRepoSel();
+  renderRepoBtn();
   if (want) await selectRepo(want, true);
   else G.repo = null;
 }
-function renderRepoSel() {
+// the repository button in the Git window header: the selected repository and its change count
+function renderRepoBtn() {
   if (!W) return;
-  W.repoSel.innerHTML = G.repos.map(r => `<option value="${esc(r.root)}">${esc(r.name)}</option>`).join('');
-  W.repoSel.style.display = G.repos.length > 1 ? '' : 'none';
-  if (G.repo) W.repoSel.value = G.repo.root;
+  const b = W.repoBtn, r = G.repo;
+  b.style.display = G.repos.length > 1 ? '' : 'none';
+  b.querySelector('.nm').textContent = r ? r.name : '…';
+  setBadge(b.querySelector('.bdg'), r && G.counts.get(r.root));
+  b.title = r ? `repository: ${r.root.replace(/\//g, '\\')} — click: choose another` : 'repository';
+}
+// git requests the repository menu (and the several-repositories view) makes for many repositories:
+// at most Q_MAX at a time, one per key; the server's git gate still limits git itself
+const Q_MAX = 3, COUNT_TTL = 15000;
+const _q = [], _qKeys = new Map();
+let _qRun = 0;
+function queued(key, fn) {
+  if (_qKeys.has(key)) return _qKeys.get(key);
+  const p = new Promise(res => { _q.push(() => fn().then(res, e => res({ error: String((e && e.message) || e) }))); qPump(); })
+    .finally(() => _qKeys.delete(key));
+  _qKeys.set(key, p);
+  return p;
+}
+function qPump() {
+  while (_qRun < Q_MAX && _q.length) { const job = _q.shift(); _qRun++; job().finally(() => { _qRun--; qPump(); }); }
+}
+// change counts per repository, from a /status (files) or a /summary (n) answer
+function noteCount(root, d) {
+  if (!d || d.aborted) return;
+  const c = d.error ? { error: d.error } : d.files
+    ? { n: d.files.length, eol: d.eol_only || 0, conflicts: d.files.filter(f => f.kind === 'conflicted').length, truncated: d.truncated }
+    : { n: d.n || 0, eol: d.eol || 0, conflicts: d.conflicts || 0, truncated: d.truncated };
+  c.t = Date.now();
+  G.counts.set(root, c);
+  if (G.repo && G.repo.root === root) renderRepoBtn();
+  const row = document.querySelector(`#gitPick.grepo .it[data-root="${CSS.escape(root)}"] .bdg`);
+  if (row) setBadge(row, c);
+}
+const shownCount = c => (c && !c.error ? c.n - (S().showEol ? 0 : c.eol) : 0);
+function setBadge(b, c) {  // "12" (changed files), red with conflicts, "…" while counting
+  if (!b) return;
+  const n = shownCount(c), loading = c === 'loading';
+  b.textContent = loading ? '…' : c && c.error ? '!' : n ? n + (c.truncated ? '+' : '') : '';
+  b.className = 'bdg' + (loading ? ' ld' : c && (c.error || c.conflicts) ? ' con' : '');
+  b.title = loading ? 'counting changes…' : c && c.error ? errText(c) : n ? `${n} changed file${n === 1 ? '' : 's'}` +
+    (c.conflicts ? `, ${c.conflicts} conflicted` : '') + (c.eol && !S().showEol ? ` (${c.eol} line-ending-only not counted)` : '') : '';
+  b.style.display = b.textContent ? '' : 'none';
+}
+function countRepos(roots, fresh) {  // badges for these repositories: cached ones stay, stale ones are asked again
+  for (const root of roots) {
+    const c = G.counts.get(root);
+    if (!fresh && c && Date.now() - c.t < COUNT_TTL) continue;
+    if (!c) { const row = document.querySelector(`#gitPick.grepo .it[data-root="${CSS.escape(root)}"] .bdg`); if (row) setBadge(row, 'loading'); }
+    queued('sum:' + root, () => api('summary', { repo: root })).then(d => noteCount(root, d));
+  }
+}
+// where a repository is, for the menu: its folder under the open folder when that says more than its name
+function repoWhere(r) {
+  const root = norm(r.root), base = norm(r.base || _settings.base_dir || '');
+  if (base && root.toLowerCase() === base.toLowerCase()) return 'open folder';
+  const rel = base && root.toLowerCase().startsWith(base.toLowerCase() + '/') ? root.slice(base.length + 1) : root;
+  return rel === r.name ? '' : rel;
+}
+// The repository menu (header button): a filter box over the repositories, ✓ on the selected one,
+// a change-count badge on each; ↑ / ↓, Enter, Esc. Picking one switches the Git window to it.
+function repoPicker(anchor) {
+  const toggled = _pickClosed.anchor === anchor && Date.now() - _pickClosed.t < 400;
+  _pickClosed = { anchor: null, t: 0 };
+  if (toggled) return;  // this click's mousedown closed it
+  closePick();
+  const box = el('div', 'gpick grepo');
+  box.id = 'gitPick';
+  box._anchor = anchor;
+  box.innerHTML = '<input class="q" placeholder="filter repositories…" spellcheck="false"><div class="lst"></div>' +
+    `<div class="ft"><span class="note">${G.repos.length} repositories · ↑↓ Enter · Esc</span></div>`;
+  const lst = box.querySelector('.lst'), q = box.querySelector('.q');
+  let act = -1, shown = [];
+  const cur = G.repo && G.repo.root;
+  const render = () => {
+    const t = q.value.trim().toLowerCase();
+    shown = G.repos.filter(r => !t || r.name.toLowerCase().includes(t) || repoWhere(r).toLowerCase().includes(t));
+    lst.innerHTML = shown.map((r, i) => {
+      const where = repoWhere(r);
+      return `<div class="it${r.root === cur ? ' cur' : ''}${i === act ? ' act' : ''}" data-i="${i}" data-root="${esc(r.root)}" title="${esc(r.root)}">` +
+        `<span class="nm">${esc(r.name)}</span>${where ? `<span class="where">${esc(where)}</span>` : ''}` +
+        `<span class="hint">${r.root === cur ? '✓' : ''}</span><span class="bdg"></span></div>`;
+    }).join('') || '<div class="gw-empty">no repository matches</div>';
+    lst.querySelectorAll('.it').forEach(row => { const c = G.counts.get(row.dataset.root); setBadge(row.querySelector('.bdg'), c || (_qKeys.has('sum:' + row.dataset.root) ? 'loading' : null)); });
+  };
+  const choose = i => {
+    const r = shown[i];
+    if (!r) return;
+    closePick();
+    if (r.root !== cur) selectRepo(r.root);
+  };
+  lst.addEventListener('click', e => { const r = e.target.closest('.it'); if (r) choose(+r.dataset.i); });
+  q.addEventListener('input', () => { act = -1; render(); });
+  q.addEventListener('keydown', e => {
+    const n = shown.length;
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && n) {
+      e.preventDefault();
+      act = act < 0 ? (e.key === 'ArrowDown' ? 0 : n - 1) : (act + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
+      render();
+      const a = lst.querySelector('.act'); if (a) a.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      choose(act >= 0 ? act : 0);
+    } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePick(); }
+  });
+  act = Math.max(0, G.repos.findIndex(r => r.root === cur));
+  render();
+  document.body.appendChild(box);
+  const r = anchor.getBoundingClientRect(), w = box.getBoundingClientRect().width, h = box.getBoundingClientRect().height;
+  box.style.left = Math.max(4, Math.min(r.left, innerWidth - w - 4)) + 'px';
+  box.style.top = (r.bottom + h + 4 < innerHeight ? r.bottom + 2 : Math.max(4, r.top - h - 2)) + 'px';
+  const a = lst.querySelector('.act'); if (a) a.scrollIntoView({ block: 'nearest' });
+  q.focus();
+  countRepos(G.repos.map(x => x.root));
 }
 async function selectRepo(root, quiet) {
   let r = G.repos.find(x => x.root === root);
@@ -1070,13 +1188,12 @@ async function selectRepo(root, quiet) {
     if (!inf.repo) return showToast('not a repository: ' + root, true);
     r = inf.repo;
     G.repos.push(r);
-    renderRepoSel();
   }
   const changed = !G.repo || G.repo.root !== r.root;
   G.repo = r;
   S().repo = r.root;
   saveState();
-  if (W) W.repoSel.value = r.root;
+  renderRepoBtn();
   if (changed) { G.status = null; G.refs = null; G.fp = ''; Log.reset(); Changes.reset(); Stash.reset(); closeHistory(true); }
   if (!quiet && W && STATE.git.open) setTab(STATE.git.tab);
   updateBranch();
@@ -1090,6 +1207,7 @@ async function loadStatus(fresh) {
   if (d.error) { G.status = { error: d }; return G.status; }
   G.status = d;
   if (d.repo) G.repo.state = d.repo.state;
+  noteCount(G.repo.root, d);
   updateBranch();
   updateConflicts();
   return d;
@@ -1146,7 +1264,7 @@ const KIND_ST = { modified: 'M', added: 'A', deleted: 'D', renamed: 'R', copied:
 const shownFiles = st => (st && st.files ? (S().showEol ? st.files : st.files.filter(f => !f.eol)) : []);
 function toggleShowEol() {
   S().showEol = !S().showEol; saveState();
-  Changes.render(); renderTB(); refreshDecor();
+  Changes.render(); renderTB(); renderRepoBtn(); refreshDecor();
 }
 const Changes = {
   tree: null, built: false,

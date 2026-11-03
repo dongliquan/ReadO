@@ -645,6 +645,18 @@ def _status_run(top, fp):
     return data
 
 
+def summary(top):
+    """Change counts of one repository for the repository menu's badges: status() (its cache, its
+    one-at-a-time lock, the git gate) without the file list. n counts line-ending-only files too
+    (eol says how many of them); the page leaves them out unless they are shown."""
+    d = status(top)
+    files = d["files"]
+    b = d["branch"]
+    return {"root": d["repo"]["root"], "state": d["repo"]["state"], "n": len(files), "eol": d["eol_only"],
+            "conflicts": sum(1 for f in files if f["kind"] == "conflicted"), "truncated": d["truncated"],
+            "branch": {k: b.get(k) for k in ("head", "upstream", "ahead", "behind", "detached")}}
+
+
 # ----- line-ending-only changes -----
 # A file git calls modified whose text differs from HEAD only in CR at line ends (an editor or
 # core.autocrlf / .gitattributes rewrote CRLF <-> LF) gets "eol": true. The page hides those by
@@ -2051,6 +2063,8 @@ def handle_get(name, q):
             return 200, dict(d, changelists=changelists(top, d))
         if name == "fp":
             return 200, {"fp": fingerprint(top), "state": repo_state(top)}
+        if name == "summary":
+            return 200, summary(top)
         if name == "refs":
             d = refs(top)
             return 200, {k: v for k, v in d.items() if k != "all"}

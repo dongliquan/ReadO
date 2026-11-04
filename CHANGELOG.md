@@ -123,6 +123,11 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
   `Items.vue` / `items.vue` before `ItemsSidebar.vue` and other loose matches from the recent files. The order is:
   exact names you opened before, other exact names, other recent files, the rest. A query with a path (`/`) keeps
   the old order.
+- Double-click the file name on an editor tab or at the end of the breadcrumb: the source gets the whole width (the
+  sidebar and the Git tool window go away); double-click again and they come back as they were (sidebar width and
+  panel kept). Single clicks, dragging and closing tabs work as before.
+- `scripts/swap_dist.py` waits up to 90 s (was 30 s) for a running ReadO to close: an app left open for hours took
+  over 30 s to exit after its window closed, and the swap stopped with nothing changed.
 - Find File no longer answers "no results" after a chooser was closed without a pick (several files for a link
   or a component, then Esc): the chooser's mode stayed behind and Ctrl+P filtered its old list. Folders with copies
   of the same files (git worktrees such as `_wt\…`) made such choosers frequent.

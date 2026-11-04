@@ -156,6 +156,6 @@ function renderCrumbs(path) {
   const parts = path.split(/[\\/]/);
   const last = parts.pop();
   const prefix = parts.map(escapeHtml).join('<span class="sep">/</span>');
-  return (prefix ? prefix + '<span class="sep">/</span>' : '') + `<span class="file">${escapeHtml(last)}</span>`;
+  return (prefix ? prefix + '<span class="sep">/</span>' : '') + `<span class="file" title="double-click: source full width (sidebar away) / back">${escapeHtml(last)}</span>`;
 }
 

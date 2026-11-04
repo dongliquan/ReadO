@@ -526,7 +526,8 @@ function renderTabsFor(paneIdx) {
     tab.title = path
       + (doc && doc.readonly ? '\nread-only: ' + doc.readonly : '')
       + (doc && doc.diskChanged ? '\nchanged on disk since opened' : '')
-      + (doc && doc.gone ? '\ndeleted on disk' : '');
+      + (doc && doc.gone ? '\ndeleted on disk' : '')
+      + '\ndouble-click the name: source full width (sidebar away) / back';
 
     const nameEl = document.createElement('span');
     nameEl.className = 'tab-name';

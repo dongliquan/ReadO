@@ -1857,6 +1857,43 @@ def main():
         bg1 = ev("getComputedStyle(document.getElementById('toolStrip')).backgroundColor")
         ev("toggleTheme()"); bg2 = ev("getComputedStyle(document.getElementById('toolStrip')).backgroundColor"); ev("toggleTheme()")
         check("tool strip follows the theme (light / dark panel colors)", bg1 != bg2 and bg1 and bg2, f"{bg1} / {bg2}")
+        # double-click on a tab's file name / the breadcrumb's file name: source full width, again: back
+        ev("setSideTab('files'); setSidebarOpen(true); document.getElementById('sidebar').style.width = '260px'")
+        ev("if (STATE.git && STATE.git.open) toggleGitTool(); STATE.maxRestore = null")
+        ev("openFile('proj/A.java')"); page.wait_for_function("currentPath === 'proj/A.java'", timeout=5000)
+        ev("openFile('proj/doc/guide.md')"); page.wait_for_function("currentPath === 'proj/doc/guide.md'", timeout=5000)
+        tabs0 = ev("[...panes[activePaneIdx].tabs.keys()].join()")
+        w0 = ev("document.querySelector('.pane.active').getBoundingClientRect().width")
+        page.dblclick(".pane.active .tab-item.active .tab-name")
+        page.wait_for_function("document.body.classList.contains('side-collapsed')", timeout=3000)
+        check("double-click on the tab's file name: sidebar away, source wider; same tab, same tabs",
+              ev("getComputedStyle(document.getElementById('sidebar')).display") == "none"
+              and ev("document.querySelector('.pane.active').getBoundingClientRect().width") > w0 + 100
+              and ev("currentPath") == "proj/doc/guide.md" and ev("[...panes[activePaneIdx].tabs.keys()].join()") == tabs0)
+        page.dblclick("#crumbs .file")
+        page.wait_for_function("!document.body.classList.contains('side-collapsed')", timeout=3000)
+        check("double-click on the breadcrumb's file name: sidebar back, same width and panel",
+              ev("document.getElementById('sidebar').getBoundingClientRect().width") == 260 and ev("_sideTab") == "files"
+              and ev("currentPath") == "proj/doc/guide.md")
+        # with the Git tool window open: both go, both come back
+        ev("toggleGitTool()"); page.wait_for_function("STATE.git && STATE.git.open", timeout=3000)
+        page.dblclick(".pane.active .tab-item.active .tab-name")
+        page.wait_for_function("STATE.sideCollapsed && !STATE.git.open", timeout=3000)
+        check("double-click: the Git tool window goes too", True)
+        ev("flushState()"); time.sleep(0.5)
+        check("full-width state and what to bring back are saved", server.ui_state().get("sideCollapsed") is True
+              and server.ui_state().get("maxRestore") == {"side": True, "git": True}, str(server.ui_state().get("maxRestore")))
+        page.dblclick("#crumbs .file")
+        page.wait_for_function("!STATE.sideCollapsed && STATE.git.open", timeout=3000)
+        check("double-click again: sidebar and Git tool window back", ev("STATE.maxRestore") is None)
+        ev("toggleGitTool()")
+        # a double-click on another tab's name: that tab becomes active (its single click), the sidebar toggles once
+        page.dblclick('.pane.active .tab-item[data-key="proj/A.java"] .tab-name')
+        page.wait_for_function("STATE.sideCollapsed", timeout=3000)
+        check("double-click on another tab's name: switches to it once, no tab opened or closed",
+              ev("currentPath") == "proj/A.java" and ev("[...panes[activePaneIdx].tabs.keys()].join()") == tabs0,
+              str(ev("[currentPath, [...panes[activePaneIdx].tabs.keys()].join(), STATE.sideCollapsed]")) + " / " + tabs0)
+        ev("setSidebarOpen(true); STATE.maxRestore = null")
         # state.json: folded + outline survive a reload
         ev("setSideTab('outline'); setSidebarOpen(false); flushState()")
         time.sleep(0.6)

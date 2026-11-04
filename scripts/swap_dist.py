@@ -43,7 +43,7 @@ import startguard  # noqa: E402  (process_info, pid_alive)
 EXE = "reado.exe"
 DIST, PREV, NEXT = (os.path.join(ROOT, d) for d in ("dist", "dist-prev", "dist-next"))
 WORK_DIRS = [os.path.join(ROOT, d) for d in ("build", "build-dist-next")]
-CLOSE_WAIT = 30  # seconds for a normal close
+CLOSE_WAIT = 90  # seconds for a normal close (an app open for hours took over 30 s to exit)
 RESTART_WAIT = 60  # seconds for the restarted window to be shown
 
 

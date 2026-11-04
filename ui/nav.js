@@ -604,6 +604,40 @@ function toggleGitTool() {  // the same command as Git → Git Tool Window / Alt
   if (CMD.get('git.toolwin')) runCommand('git.toolwin');
   else if (window.GitUI) GitUI.toggleWindow();
 }
+// Double-click on a tab's file name or the breadcrumb's file name: the source
+// fills the window (sidebar and Git tool window away); again: they come back as
+// they were (the hidden sidebar keeps its width and panel; STATE.maxRestore
+// remembers which of the two were open, kept like the sidebar state).
+function toggleSourceMax() {
+  const gitOpen = () => !!(STATE.git && STATE.git.open);
+  if (STATE.sideCollapsed && !gitOpen()) {  // already full: bring back what was open
+    const r = STATE.maxRestore;
+    STATE.maxRestore = null;
+    if (r && r.git) toggleGitTool();
+    if (!r || r.side) setSidebarOpen(true);  // the same as View › Sidebar
+    else saveState();
+    return;
+  }
+  STATE.maxRestore = { side: !STATE.sideCollapsed, git: gitOpen() };
+  if (gitOpen()) toggleGitTool();
+  if (!STATE.sideCollapsed) setSidebarOpen(false);
+  else saveState();
+}
+// From two presses, not 'dblclick': the first click re-renders the tab strip, so
+// the browser sees two different nodes and sends no dblclick.
+let _nameDown = null;
+document.addEventListener('mousedown', e => {
+  const hit = e.button === 0 && e.target.closest && e.target.closest('.tab-item .tab-name, #crumbs .file');
+  if (!hit) { _nameDown = null; return; }
+  const d = _nameDown, now = Date.now();
+  if (d && now - d.t < 500 && Math.abs(e.clientX - d.x) < 5 && Math.abs(e.clientY - d.y) < 5) {
+    _nameDown = null;
+    e.preventDefault();  // no word selection, no tab drag
+    toggleSourceMax();
+    return;
+  }
+  _nameDown = { t: now, x: e.clientX, y: e.clientY };
+}, true);
 // Only a missing git dims the icon; it stays clickable like the menu (the window then says why).
 // A working folder that is not itself a repository (repositories below it) is normal.
 let _gitAvail = null;  // null: unknown, false: git not installed / too old

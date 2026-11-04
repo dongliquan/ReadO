@@ -123,6 +123,14 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
   `Items.vue` / `items.vue` before `ItemsSidebar.vue` and other loose matches from the recent files. The order is:
   exact names you opened before, other exact names, other recent files, the rest. A query with a path (`/`) keeps
   the old order.
+- Dark theme: easier on the eyes, every text color at least 4.5:1 (WCAG) and nothing pure red / green / magenta.
+  SQL strings were pure red (#ff0000) and SQL functions magenta — Monaco's built-in SQL / HTML / YAML rules won over
+  One Dark's; One Dark now names them. Diffs (compare, the Git diff window) use a faint coral / green tint per line
+  and a slightly stronger one for the characters that changed, instead of solid red / green. Secondary text
+  (breadcrumb, hints, line numbers, comments, Git columns) is lighter, primary buttons have dark text on blue, file
+  badges get a calmer twin of their color, bracket pairs and gutter markers use the One Dark colors. The light
+  theme is unchanged. `scripts/contrast_check.py` checks the dark palette (themes in `ui/themes.js`, shared by
+  the main window and the diff windows).
 - Double-click the file name on an editor tab or at the end of the breadcrumb: the source gets the whole width (the
   sidebar and the Git tool window go away); double-click again and they come back as they were (sidebar width and
   panel kept). Single clicks, dragging and closing tabs work as before.

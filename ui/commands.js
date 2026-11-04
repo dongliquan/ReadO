@@ -359,9 +359,31 @@ const FILE_BADGES = [
   [/(^|\/)(makefile|cmakelists\.txt)$/i, 'MK', '#6d8086'], [/(^|\/)\.git(ignore|attributes|modules)$/i, 'GT', '#f14e32'],
   [/\.(png|jpe?g|gif|bmp|ico|webp)$/i, 'IM', '#a074c4'], [/\.(pdf|zip|jar|war|exe|dll|class|so)$/i, 'BN', '#8b949e'],
 ];
+// The dark theme's twin of a badge color: mixed toward #d7dae0 in 5% steps until it
+// reads 4.5:1 on the dark panels, the active tab strip and a selected row, and is no
+// longer loud (scripts/contrast_check.py has the same steps). The language colors
+// themselves are made for a white page.
+const DARK_BADGE_BGS = [[40, 44, 52], [33, 37, 43], [29, 51, 82], [38, 59, 92]];  // #282c34 #21252b #1d3352 #263b5c
+const _darkBadges = new Map();
+function darkBadge(hex) {
+  if (_darkBadges.has(hex)) return _darkBadges.get(hex);
+  const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)), g = [0xd7, 0xda, 0xe0];
+  const lum = v => { const f = x => (x /= 255) <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); return 0.2126 * f(v[0]) + 0.7152 * f(v[1]) + 0.0722 * f(v[2]); };
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  let out = '#d7dae0';
+  for (let step = 4; step <= 20; step++) {
+    const p = step / 20, m = c.map((v, i) => Math.round(v * (1 - p) + g[i] * p));
+    if (Math.min(...DARK_BADGE_BGS.map(b => ratio(m, b))) >= 4.6 && (Math.max(...m) - Math.min(...m)) / 255 < 0.6) {
+      out = '#' + m.map(v => v.toString(16).padStart(2, '0')).join('');
+      break;
+    }
+  }
+  _darkBadges.set(hex, out);
+  return out;
+}
 function fileBadge(name) {
   for (const [re, label, color] of FILE_BADGES) {
-    if (re.test(name)) return `<span class="fbadge" style="--c:${color}">${escapeHtml(label)}</span>`;
+    if (re.test(name)) return `<span class="fbadge" style="--c:${color};--cd:${darkBadge(color)}">${escapeHtml(label)}</span>`;
   }
   return '<span class="fbadge plain" style="--c:#8b949e">·</span>';
 }

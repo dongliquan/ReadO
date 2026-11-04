@@ -224,6 +224,8 @@ def setup():
     # a git worktree checked out inside the folder (.git is a file), like C:\Projects\_wt\…
     w(os.path.join(p, "_wt", "stg-log", ".git"), "gitdir: C:/elsewhere/.git/worktrees/stg-log\n")
     w(os.path.join(p, "_wt", "stg-log", "src", "main", "WtApp.java"), "class WtApp {}\n")
+    # dark theme colors: SQL strings / functions were pure red / magenta (Monaco's built-in rules)
+    w(os.path.join(p, "db", "m.sql"), "ALTER TABLE t ADD COLUMN a VARCHAR(1) DEFAULT 'N';\nSELECT count(*) FROM t;\n")
     w(os.path.join(p, "doc", "pics.md"),
       "# Pics\n\n![ok](img/dot.png) ![up](../logo.png) ![out](../../../outside.png)"
       " <img src=\"data:image/png;base64,AAAA\">\n\n[guide](guide.md) [escape](../../../x.md)\n\n"
@@ -1857,6 +1859,46 @@ def main():
         bg1 = ev("getComputedStyle(document.getElementById('toolStrip')).backgroundColor")
         ev("toggleTheme()"); bg2 = ev("getComputedStyle(document.getElementById('toolStrip')).backgroundColor"); ev("toggleTheme()")
         check("tool strip follows the theme (light / dark panel colors)", bg1 != bg2 and bg1 and bg2, f"{bg1} / {bg2}")
+        # --- dark theme contrast (scripts/contrast_check.py has the full list) ---
+        import subprocess as _sp
+        cc = _sp.run([sys.executable, os.path.join(REPO, "scripts", "contrast_check.py")], capture_output=True, text=True)
+        check("scripts/contrast_check.py: every dark color passes (WCAG 4.5:1 text, nothing pure red / green)",
+              cc.returncode == 0, (cc.stdout + cc.stderr)[-400:])
+        ev("openFile('proj/db/m.sql')"); page.wait_for_function("currentPath === 'proj/db/m.sql'", timeout=5000)
+        tok = """(w => { const s = [...document.querySelectorAll('.pane.active .view-line span span')].find(x => x.textContent.includes(w));
+                 return s ? getComputedStyle(s).color : null; })"""
+        def sql_colors():
+            time.sleep(0.4)
+            return ev(f"{tok}(\"'N'\")"), ev(f"{tok}('count')")
+        was_dark = ev("getTheme()") == "dark"
+        if was_dark:
+            ev("toggleTheme()")
+        light = sql_colors()
+        badge = "(() => { const d = document.createElement('div'); d.innerHTML = fileBadge('A.java'); document.body.appendChild(d); const c = getComputedStyle(d.firstChild).color; d.remove(); return c; })()"
+        badge_light = ev(badge)
+        ev("toggleTheme()")  # dark
+        check("file badges: a calmer, lighter twin in dark (Java #b07219 -> #c2a173), light unchanged",
+              ev(badge) == "rgb(194, 161, 115)" and badge_light == "rgb(176, 114, 25)", f"{ev(badge)} / {badge_light}")
+        dark = sql_colors()
+        check("dark: SQL strings are One Dark green, SQL functions blue (were #ff0000 / #ff00ff)",
+              dark == ("rgb(152, 195, 121)", "rgb(97, 175, 239)"), str(dark))
+        check("light theme left as it was (SQL string / function colors unchanged)",
+              light == ("rgb(255, 0, 0)", "rgb(199, 0, 199)"), str(light))
+        check("dark: secondary text and primary buttons readable (--text-mute, --on-accent)",
+              ev("getComputedStyle(document.body).getPropertyValue('--text-mute').trim()") == "#8f96a2"
+              and ev("getComputedStyle(document.body).getPropertyValue('--on-accent').trim()") == "#1b1f24")
+        ev("openDiff('m.sql: test', \"ALTER TABLE t ADD COLUMN a VARCHAR(1) DEFAULT 'Y';\\nDROP TABLE x;\\nSELECT count(*) FROM t;\\n\", docs.get('proj/db/m.sql'))")
+        page.wait_for_function("document.querySelector('#diffBox .line-delete') && document.querySelector('#diffBox .char-delete')", timeout=8000)
+        time.sleep(0.6)
+        bgs = ev("""(() => { const q = s => { const e = document.querySelector('#diffBox ' + s); return e ? getComputedStyle(e).backgroundColor : null; };
+                    return [q('.line-delete'), q('.char-delete'), q('.line-insert'), q('.char-insert')]; })()""")
+        alphas = [float(b.split(",")[3].strip(" )")) if b and b.startswith("rgba") else None for b in bgs]
+        check("dark diff: soft coral / green tints, changed characters one step stronger (was red / green at .2)",
+              bgs[0].startswith("rgba(224, 108, 117") and bgs[2].startswith("rgba(152, 195, 121")
+              and alphas[0] < alphas[1] <= 0.15 and alphas[2] < alphas[3] <= 0.15, str(bgs))
+        ev("closeDiff()")
+        if not was_dark:
+            ev("toggleTheme()")  # back to light
         # double-click on a tab's file name / the breadcrumb's file name: source full width, again: back
         ev("setSideTab('files'); setSidebarOpen(true); document.getElementById('sidebar').style.width = '260px'")
         ev("if (STATE.git && STATE.git.open) toggleGitTool(); STATE.maxRestore = null")

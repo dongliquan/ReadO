@@ -1625,7 +1625,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "no such diff window"})
         try:
             with open(os.path.join(os.path.dirname(HTML_PATH), "diffwin.html"), "r", encoding="utf-8") as f:
-                html = f.read()
+                html = expand_includes(f.read())  # ui/themes.js, shared with the main page
         except FileNotFoundError:
             return self._send(404, {"error": "diffwin.html missing"})
         snippet = _TOKEN_SNIPPET.format(t=CSRF_TOKEN, h=TOKEN_HEADER)

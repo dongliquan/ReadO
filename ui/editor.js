@@ -55,64 +55,7 @@ let _monacoReady;
 const monacoReady = new Promise(resolve => { _monacoReady = resolve; });
 require.config({ paths: { vs: '/vendor/monaco/vs' } });
 require(['vs/editor/editor.main'], () => {
-  // Atom One Light theme
-  monaco.editor.defineTheme('one-light', {
-    base: 'vs',
-    inherit: true,
-    rules: [
-      { token: '', foreground: '383a42', background: 'fafafa' },
-      { token: 'comment', foreground: 'a0a1a7', fontStyle: 'italic' },
-      { token: 'keyword', foreground: 'a626a4' },
-      { token: 'string', foreground: '50a14f' },
-      { token: 'number', foreground: '986801' },
-      { token: 'type', foreground: 'c18401' },
-      { token: 'type.identifier', foreground: 'c18401' },
-      { token: 'identifier', foreground: '383a42' },
-      { token: 'delimiter', foreground: '383a42' },
-      { token: 'tag', foreground: 'e45649' },
-      { token: 'attribute.name', foreground: 'b76b01' },
-      { token: 'attribute.value', foreground: '50a14f' },
-    ],
-    colors: {
-      'editor.background': '#fafafa',
-      'editor.foreground': '#383a42',
-      'editor.lineHighlightBackground': '#f0f0f1',
-      'editorLineNumber.foreground': '#a0a1a7',
-      'editorLineNumber.activeForeground': '#383a42',
-      'editorCursor.foreground': '#526fff',
-      'editor.selectionBackground': '#e5e5e6',
-      'editor.inactiveSelectionBackground': '#f0f0f1',
-    },
-  });
-  // Atom One Dark theme
-  monaco.editor.defineTheme('one-dark', {
-    base: 'vs-dark',
-    inherit: true,
-    rules: [
-      { token: '', foreground: 'abb2bf', background: '282c34' },
-      { token: 'comment', foreground: '5c6370', fontStyle: 'italic' },
-      { token: 'keyword', foreground: 'c678dd' },
-      { token: 'string', foreground: '98c379' },
-      { token: 'number', foreground: 'd19a66' },
-      { token: 'type', foreground: 'e5c07b' },
-      { token: 'type.identifier', foreground: 'e5c07b' },
-      { token: 'identifier', foreground: 'abb2bf' },
-      { token: 'delimiter', foreground: 'abb2bf' },
-      { token: 'tag', foreground: 'e06c75' },
-      { token: 'attribute.name', foreground: 'd19a66' },
-      { token: 'attribute.value', foreground: '98c379' },
-    ],
-    colors: {
-      'editor.background': '#282c34',
-      'editor.foreground': '#abb2bf',
-      'editor.lineHighlightBackground': '#2c313a',
-      'editorLineNumber.foreground': '#5c6370',
-      'editorLineNumber.activeForeground': '#abb2bf',
-      'editorCursor.foreground': '#528bff',
-      'editor.selectionBackground': '#3e4451',
-      'editor.inactiveSelectionBackground': '#363c46',
-    },
-  });
+  defineReadoThemes(monaco);  // One Light / One Dark (ui/themes.js)
 
   applyLangDiagnostics();
   // Create the first pane (single-view default)

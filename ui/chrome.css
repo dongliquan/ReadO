@@ -91,8 +91,6 @@
   .rpl-line { padding: 0 16px 0 44px; white-space: pre-wrap; word-break: break-all; }
   .rpl-line.del { color: #b91c1c; }
   .rpl-line.add { color: #15803d; }
-  body.theme-dark .rpl-line.del { color: #e06c75; }
-  body.theme-dark .rpl-line.add { color: #98c379; }
   .rpl-foot { display: flex; gap: 10px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--border);
     font-size: 11px; font-family: var(--mono); color: var(--text-dim); }
   .rpl-foot .rpl-note { margin-right: auto; color: #b45309; }

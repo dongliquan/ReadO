@@ -15,6 +15,8 @@
     --mono: "D2Coding", "D2Coding ligature", ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
   }
   /* === One Dark === */
+  /* text reads 4.5:1 on --bg / --panel / --side, nothing pure red / green
+     (scripts/contrast_check.py checks these values) */
   body.theme-dark {
     --bg: #21252b;
     --panel: #282c34;
@@ -22,14 +24,41 @@
     --border: #181a1f;
     --border-strong: #3e4451;
     --text: #abb2bf;
-    --text-dim: #9aa0a8;
-    --text-mute: #5c6370;
+    --text-dim: #a1a7b0;
+    --text-mute: #8f96a2;
     --accent: #61afef;
+    --on-accent: #1b1f24;   /* text on --accent (white was 2.4:1) */
     --hl: #d19a66;
     --hl-text: #21252b;
     --hover: #2c313a;
+    --sel-bg: #263b5c;      /* the selected tree row */
+    --tabs-active: #1d3352; /* the active pane's tab strip */
+    --err: #ef8a91;         /* coral instead of red */
+    --ok: #98c379;
+    --warn: #e5c07b;
+    --mark-add: #98c379;    /* the editor's git change markers */
+    --mark-mod: #61afef;
+    --mark-del: #ef8a91;
   }
-  body.theme-dark .node.active { background: #2c4870; color: #e6e6e6; }
+  body.theme-dark .node.active { background: var(--sel-bg); color: #e6e6e6; }
+  /* (a selected Find in Files result is gray in dark, not --accent: it keeps its light text) */
+  body.theme-dark :is(.sidebar-header .tab.active, .pane.active .pane-num, .tree-empty button, .qo-cat.active, .qo-item.sel,
+    .fd-list .qo-item.sel, .modal .actions-row button.primary, .rpl-foot button.primary, .start-actions button.primary,
+    .gx-dlg button.primary, .grepo .ft button.primary) { color: var(--on-accent); }
+  body.theme-dark .modal .actions-row button.primary:hover { background: #7cbdf2; }
+  body.theme-dark :is(.qo-item.sel .qo-dim, .qo-item.sel .qo-meta, .fd-list .qo-item.sel .qo-dir) { color: rgba(27, 31, 36, .8); }
+  body.theme-dark .qo-item.sel mark { background: rgba(27, 31, 36, .16); color: var(--on-accent); }
+  /* file badges: a calmer, lighter twin of each language color (fileBadge sets --cd) */
+  body.theme-dark .fbadge { color: var(--cd, var(--c)); border-color: var(--cd, var(--c)); }
+  body.theme-dark .fbadge.plain { border-color: transparent; }
+  body.theme-dark .qo-item.sel .fbadge { color: var(--on-accent); border-color: var(--on-accent); }
+  body.theme-dark .tab-item.stale .tab-name { color: var(--warn); }
+  body.theme-dark .git-add { border-left-color: var(--mark-add); }
+  body.theme-dark .git-mod { border-left-color: var(--mark-mod); }
+  body.theme-dark .git-del::after { border-left-color: var(--mark-del); }
+  body.theme-dark .rpl-line.del, body.theme-dark .rpl-file .rpl-res.err { color: var(--err); }
+  body.theme-dark .rpl-line.add, body.theme-dark .rpl-file .rpl-res.ok { color: var(--ok); }
+  body.theme-dark .rpl-foot .rpl-note { color: var(--warn); }
   body.theme-dark ::-webkit-scrollbar { width: 10px; height: 10px; }
   body.theme-dark ::-webkit-scrollbar-track { background: #1a1d22; }
   body.theme-dark ::-webkit-scrollbar-thumb { background: #3a3f4a; border-radius: 4px; border: 2px solid #1a1d22; }
@@ -40,8 +69,8 @@
   body.theme-dark .qo-item.sel { background: var(--accent); color: #21252b; }
   body.theme-dark .res-line .tx mark { background: #d19a66; color: #21252b; }
   body.theme-dark .qo-item mark { background: #d19a66; color: #21252b; }
-  body.theme-dark .qo-item:hover { background: #3a4150; color: var(--text); }
-  body.theme-dark .res-line:hover { background: #3a4150; color: var(--text); }
+  body.theme-dark .qo-item:not(.sel):hover { background: #3a4150; color: var(--text); }
+  body.theme-dark .res-line:not(.sel):hover { background: #3a4150; color: var(--text); }
   body.theme-dark .modal input,
   body.theme-dark .modal textarea,
   body.theme-dark .qo input { background: #21252b; color: var(--text); border-color: var(--border-strong); }
@@ -213,7 +242,7 @@
   .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
   .pane.active { box-shadow: 0 0 0 2px var(--accent) inset; }
   .pane.active .tabs { background: #dbeafe; }
-  body.theme-dark .pane.active .tabs { background: #1e3a5f; }
+  body.theme-dark .pane.active .tabs { background: var(--tabs-active); }
   .pane:not(.active) .tabs { background: var(--side); }
   .pane-editor { flex: 1; min-height: 0; }
   .pane-preview { flex: 1; min-height: 0; overflow: auto; padding: 24px 40px; background: var(--panel); color: var(--text); }

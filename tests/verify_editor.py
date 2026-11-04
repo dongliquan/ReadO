@@ -221,6 +221,9 @@ def setup():
     for name in ("Widgets.vue", "sub/widgets.vue", "WidgetsSidebar.vue", "AboutUsWidgets.vue",  # Find File order
                  "deep/deeper/widgets.vue", "a_widgets.vue", "b_widgets.vue", "c_widgets.vue", "d_widgets.vue", "e_widgets.vue"):
         w(os.path.join(p, "qo", *name.split("/")), "<template><div/></template>\n")
+    # a git worktree checked out inside the folder (.git is a file), like C:\Projects\_wt\…
+    w(os.path.join(p, "_wt", "stg-log", ".git"), "gitdir: C:/elsewhere/.git/worktrees/stg-log\n")
+    w(os.path.join(p, "_wt", "stg-log", "src", "main", "WtApp.java"), "class WtApp {}\n")
     w(os.path.join(p, "doc", "pics.md"),
       "# Pics\n\n![ok](img/dot.png) ![up](../logo.png) ![out](../../../outside.png)"
       " <img src=\"data:image/png;base64,AAAA\">\n\n[guide](guide.md) [escape](../../../x.md)\n\n"
@@ -1074,6 +1077,27 @@ def main():
         finally:
             server.find_files = find_files0
         ev("closeQO(); STATE.recent = window._recent0")
+        got = ev("fetch('/api/files?q=WtApp.java').then(r => r.json()).then(d => d.results.map(x => x.path))")
+        check("Find File: files of a git worktree inside the folder (.git is a file) are found",
+              got == ["proj/_wt/stg-log/src/main/WtApp.java"], str(got))
+        # a chooser (several files for a link / component) closed with Esc must not leave its
+        # mode behind: the next Ctrl+P is Find File again, not a filter over the old candidates
+        ev("pickFile('2 files for X', ['proj/A.java', 'proj/doc/guide.md'], () => {})")
+        page.wait_for_function("qoIsOpen() && _qoMode === 'pick'", timeout=3000)
+        page.keyboard.press("Escape")
+        page.wait_for_function("!qoIsOpen()", timeout=3000)
+        ev("panes[activePaneIdx].editor.focus()")
+        page.keyboard.press("Control+P")
+        page.wait_for_function("qoIsOpen()", timeout=3000)
+        page.keyboard.type("WtApp.java")
+        try:
+            page.wait_for_function("!_qoLoading && _qoItems.some(i => i.path === 'proj/_wt/stg-log/src/main/WtApp.java')", timeout=6000)
+            ok = True
+        except Exception:
+            ok = False
+        check("Find File after a chooser closed with Esc: searches files again (was 'no results')",
+              ok and ev("_qoMode") == "file", str(ev("[_qoMode, _qoItems.map(i => i.path)]")))
+        ev("closeQO()")
 
         # --- recent files / folders that are gone leave the lists ---
         import srv_fileops

@@ -12,6 +12,10 @@ const QO_PAGE = 50;
 function openQO(prefill) {
   closeFIF();
   closeSettings();
+  // a chooser closed without a pick (Esc, click outside) must not linger: its
+  // mode would make Find File filter the old candidates ("no results").
+  // pickFile / pickAnyFile set theirs again after this call.
+  _qoMode = 'file'; _pickHandler = null; _pickAll = null; _qoFileHandler = null;
   document.getElementById('qoInput').placeholder = 'Find File — file name  ·  >command  ·  %text in files  ·  #symbol  ·  @symbol in file  ·  :line';
   document.getElementById('qoBg').classList.add('show');
   const inp = document.getElementById('qoInput');

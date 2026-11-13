@@ -1,123 +1,10 @@
 # ReadO 기능 정리 및 에디터 갭 분석
 
-<input type="radio" name="xall" id="xo" checked style="display:none">
-<input type="radio" name="xall" id="xc" style="display:none">
-<style>
-/* ═══ 1. 제목 위계 ═══════════════════════════════════════
-   좌측 막대는 h2 전용. 챕터(h1)는 옅은 밴드 + 번호 배지(.num), 소제목(h3)은 옅은 배지(.n3), 문서 제목은 밑줄.
-   <a id> 앵커는 <p>로 감싸져 "a + h1" 이 안 걸리므로 :first-of-type 로 구분. */
-h1 { font-size: 1.3em; font-weight: 800; color: #2f3640; background: #eef1f4;
-     border-radius: 6px; padding: 9px 13px 9px 10px; margin: 2.2em 0 1em }
-/* 챕터 번호 배지 — 제목 앞 <span class="num">N</span> (부록은 A) */
-.num { display: inline-block; min-width: 1.55em; text-align: center; background: #3f4650; color: #fff;
-       border-radius: 6px; padding: 2px 8px; margin-right: 10px; font-size: .9em; line-height: 1.35; vertical-align: 2px }
-h1:first-of-type { font-size: 1.5em; color: #212529; background: none; border-radius: 0;
-     border-bottom: 3px solid #343a40; padding: 0 0 7px; margin: 1.8em 0 .8em }
-h2 { font-size: 1.2em; font-weight: 700; color: #343a40;
-     border-left: 6px solid #343a40; padding: 2px 0 2px 11px; margin: 1.5em 0 .6em }
-h2:first-of-type { border-left: 0; padding-left: 0 }                          /* 목차 */
-details h2:first-of-type { border-left: 6px solid #343a40; padding-left: 11px } /* 부록 A.1 */
-h3 { font-size: 1.02em; font-weight: 700; color: #343a40; margin: 1.9em 0 .8em }   /* 항목 안 단락 경계 — 막대 없이 번호 배지로 */
-.n3 { display: inline-block; background: #f1f3f5; color: #5b6168; border: 1px solid #dfe3e7;   /* 소제목 배지 N.M.k — 항목 배지보다 한 단 옅게 */
-      border-radius: 4px; padding: 0 6px; margin-right: 8px; font-size: .82em; font-weight: 800; vertical-align: 1px }
-/* 본문 문단 간격 — 소제목→문단(.8em)보다 문단↔문단(.5em)이 작아야 "소제목이 문단을 거느린다"로 읽힌다. 넓으면 빈 줄이 들어간 듯 보인다(실제 지적) */
-.ib p { margin: .3em 0 .5em }
-h4 { font-size: .96em; font-weight: 700; color: #6c757d; margin: 1.5em 0 .5em }
-h4::before { content: "▸ "; color: #adb5bd }
-/* 제목 줄 우측 컨트롤 (float 이라 .hctl 이 든 heading 에만 걸린다) */
-.hctl { float: right; font-weight: 400; white-space: nowrap; margin-left: 14px }
-h1 .hctl { font-size: .6em; padding-top: .35em }
-h1 .hctl a { color: #0969da }
-h2 .hctl { font-size: .72em; padding-top: .18em }
-/* 부록 헤더(summary.apx) — 챕터 밴드와 같은 모양, 펼침 삼각형 없이 */
-summary.apx { list-style: none; cursor: pointer; font-size: 1.3em; font-weight: 800; color: #2f3640;
-     background: #eef1f4; border-radius: 6px; padding: 9px 13px 9px 10px; margin: 2.2em 0 1em }
-summary.apx::-webkit-details-marker { display: none }  summary.apx::marker { content: "" }
-summary.apx .hctl { font-size: .6em; padding-top: .35em }
-summary.apx .hctl a { color: #0969da }
-/* ═══ 2. 접히는 항목(.it) — 체크박스 방식 ══════════════════
-   native details 는 닫힌 내용을 shadow slot에서 숨겨 CSS로 못 되살린다
-   → '전체 접기' 뒤 개별 펼치기가 불가. 그래서 체크박스로 상태를 직접 가진다.
-   (CSS 주석에 꺾쇠 태그 리터럴을 쓰지 말 것 — 태그 균형 검사에 잡힌다)
-   모드별 체크박스 2개(.ca 펼침모드 / .cb 접기모드) → 모드 전환 시 반전 없음.
-   ★ .it 는 라디오의 직계 형제 → 모든 규칙에 "~ .it" 와 "~ * .it" 를 함께 쓴다. */
-.it { margin: 1.1em 0 1.5em }
-.it + .it { border-top: 1px dashed #e3e7ea; padding-top: .9em }   /* 항목 "사이"에만 점선 → 마지막 항목엔 선 없음 */
-.it > .ib { padding-left: 14px }                                    /* 본문 들여쓰기 — 헤더와 왼쪽 선이 같으면 소속이 안 보임 */
-.it > .ih { display: block; font-size: 1.02em; font-weight: 700; color: #2f3640;
-     padding: 4px 0; margin-bottom: .9em; cursor: pointer; user-select: none }
-.it > .ih:hover { color: #0969da }
-.it > .ih::after { content: "▼"; float: right; color: #adb5bd; font-size: .85em; padding-top: 2px }  /* 펼침 표시 = 우측 */
-.ih .n { display: inline-block; background: #e9edf1; color: #3f4650; border-radius: 5px;             /* 옅은 번호 배지 */
-         padding: 1px 7px; margin-right: 9px; font-size: .86em; font-weight: 800; vertical-align: 1px }
-.ih .sub { color: #6c757d; font-weight: 500; margin-left: 6px; font-size: .92em }                    /* 회색 부제 */
-/* 모드에 맞는 라벨 하나만 */
-#xo:checked ~ .it > .lb, #xo:checked ~ * .it > .lb,
-#xc:checked ~ .it > .la, #xc:checked ~ * .it > .la { display: none }
-/* 펼침 모드: 체크 = 사용자가 닫음 */
-#xo:checked ~ .it > .ca:checked ~ .ib,        #xo:checked ~ * .it > .ca:checked ~ .ib { display: none }
-#xo:checked ~ .it > .ca:checked ~ .la::after,  #xo:checked ~ * .it > .ca:checked ~ .la::after  { content: "▶" }
-/* 접기 모드: 체크 = 사용자가 열음 */
-#xc:checked ~ .it > .cb:not(:checked) ~ .ib,        #xc:checked ~ * .it > .cb:not(:checked) ~ .ib { display: none }
-#xc:checked ~ .it > .cb:not(:checked) ~ .lb::after,  #xc:checked ~ * .it > .cb:not(:checked) ~ .lb::after  { content: "▶" }
-/* 목차의 전체 펼치기/접기 라벨 — 현재 모드를 굵게 */
-#xo:checked ~ * label[for="xo"], #xc:checked ~ * label[for="xc"] { font-weight: 700 }
-/* ═══ 3. 콜아웃 — 막대 없이 둥근 박스 + 라벨 ═════════════════ */
-blockquote, .warn, .tip { border: 1px solid; border-radius: 7px;
-     margin: .9em 0 1.4em; padding: 9px 12px; color: #333 }
-blockquote { border-color: #cfe2f7; background: #f5f9fe }
-blockquote > p:first-child { margin-top: 0 }  blockquote > p:last-child { margin-bottom: 0 }
-h1 + blockquote, h2 + blockquote, h3 + blockquote { border: 0; background: none; border-radius: 0;   /* 제목 직후 > = 도입문(박스 아님) */
-     padding: 0 0 0 2px; margin: -.2em 0 1.3em; font-size: 1.02em; color: #5b6168 }
-.warn { border-color: #f0d9ac; background: #fffaf2 }
-.warn::before { content: "⚠️ 주의"; display: inline-block; font-weight: 800; font-size: .82em;
-     color: #a35d00; background: #fbeccc; border-radius: 20px; padding: 1px 9px; margin-right: 7px }
-.tip { border-color: #b9e5c9; background: #f2fbf5 }
-.tip::before { content: "💡 쉽게 말하면"; display: inline-block; font-weight: 800; font-size: .82em;
-     color: #0b6b39; background: #d8f2e2; border-radius: 20px; padding: 1px 9px; margin-right: 7px }
-/* ═══ 4. 표 · 코드 · 구분선 ════════════════════════════════
-   표는 좁은 화면에서 표 안에서만 가로 스크롤. th 배경 없으면 본문 zebra보다 약해 보임. */
-table { margin: .5em 0 1.5em !important; display: block; width: max-content;
-        max-width: 100%; overflow-x: auto; border-collapse: collapse }
-th, td { border: 1px solid #e4e7eb; padding: 6px 10px; text-align: left; vertical-align: top }
-th { background: #e9edf1; color: #2f3640; font-weight: 700; text-align: center;   /* 배경으로 구분 → 테두리 없이 · 가운데 정렬 (실제 지적) */
-     border: 0; white-space: nowrap }
-pre { margin: .6em 0 1.5em !important; overflow-x: auto }
-code { background: #f1f3f5; padding: 1px 5px; border-radius: 3px; font-size: .92em }
-.cap { font-size: .86em; color: #868e96; margin: .3em 0 1.5em; padding-left: 2px }
-table + .cap, pre + .cap { margin-top: -1.1em }        /* 표·코드 아래 캡션만 붙인다 — 도표 뒤에 음수면 겹친다(실제 사례) */
-div[style*="Noto Sans KR"] { margin: .7em 0 1.5em }      /* 카드 흐름도 컨테이너 하단 여백 */
-ul, ol { margin: .6em 0 1em }
-hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은 h1 밴드가 함 */
-/* ═══ 5. 흐름 카드 — nowrap + 가로 스크롤 (wrap이면 좁은 화면에서 세로로 쌓임) ═══ */
-.lay { display: flex; flex-wrap: nowrap; gap: 8px; margin: .7em 0 1.6em;
-       align-items: stretch; overflow-x: auto; padding-bottom: 6px }
-.cd { flex: 0 0 200px; border: 1px solid #e4e7eb; border-top-width: 4px; border-radius: 7px;
-      padding: 8px 10px; background: #fff; font-size: 12px; line-height: 1.5 }
-.cd > b { display: block; font-size: 12.5px; margin-bottom: 2px }
-.cd .k { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: #495057 }
-.cd .s { display: block; margin-top: 4px; color: #6c757d; font-size: 11px }
-.ar { align-self: center; color: #adb5bd; font-weight: 800; font-size: 16px; flex: 0 0 auto }
-.tg { display: inline-block; font-size: 10.5px; font-weight: 700; border-radius: 20px;
-      padding: 1px 8px; margin-right: 4px }
-/* ═══ 6. 번호 배지(.cn) — 원문자(circled digits) 대체 ═══════════════════
-   U+2460~2473 은 폰트 대체(fallback)로 2·3·5·6 등 일부 글리프 모양이 달라진다(실제 지적).
-   본문·표·캡션의 번호는 항상 <span class="cn">N</span> 으로 쓴다. 코드/SQL 안은 (1)(2) 로. */
-.cn { display: inline-block; min-width: 1.55em; height: 1.55em; padding: 0 .2em; border-radius: 50%;
-      border: 1.5px solid #3f4650; color: #2f3640; background: #fff; text-align: center;
-      line-height: 1.45em; font-weight: 800; font-size: .82em; font-family: ui-monospace, Consolas, monospace;
-      vertical-align: .08em; margin: 0 .12em }
-/* 순서·단계 번호(1→2→3)는 .st(사각), 분류·종류 번호(상품종류 ①~⑥ 등)는 .cn(원형) — 같은 문서에서 두 뜻이 섞이면 모양으로 구분한다 */
-.st { display: inline-block; min-width: 1.4em; height: 1.4em; padding: 0 .25em; border-radius: 3px;              /* 순서·단계 번호 — 분류 배지(.cn)와 모양을 가른다 */
-      background: #e9edf1; color: #3f4650; text-align: center; line-height: 1.4em; font-weight: 700; font-size: .8em;
-      font-family: ui-monospace, Consolas, monospace; vertical-align: .08em; margin: 0 .12em }
-</style>
-
 **대상**: `reado.py` · `server.py` · `source.html` · `config.json` · `build.bat` · `fetch-vendor.py` (커밋 `aebd051` + 미커밋 `reado.py` 변경)  
 **기준**: 가벼운 에디터(VS Code lite / Notepad++ 수준)  
 **범위**: §1은 분석 시점 기준이고, 이후 바뀐 부분(2단계 B, 설계 재점검 A–D)은 §2 표의 비고·§2.3·§2.9와 §3의 상태 열에 반영했다.
 
-<div class="warn">2단계 B 반영: 편집·저장, 작업 폴더 밖 파일 열기, 상태 복원, 외부 변경 감지가 들어갔다. 해결 여부는 §3 표의 "상태" 열을 본다.</div>
+> 2단계 B 반영: 편집·저장, 작업 폴더 밖 파일 열기, 상태 복원, 외부 변경 감지가 들어갔다. 해결 여부는 §3 표의 "상태" 열을 본다.
 
 <a id="toc"></a>
 
@@ -133,25 +20,20 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 <a id="cat-1"></a>
 
-# <span class="num">1</span> 구조 한눈에 <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+# 1 구조 한눈에 
 
 > 데스크톱 창은 껍데기일 뿐이고, 기능은 전부 로컬 HTTP 서버와 단일 HTML 페이지에 들어 있다.
 
-<div class="lay">
- <div class="cd" style="border-top-color:#6c8ebf"><b>reado.py</b><span class="k">pywebview 6.x · WebView2</span><span class="s">서버 스레드 기동 → 준비될 때까지 폴링 → 창 생성. JS API는 <code>pick_dir</code> 하나뿐. config는 %APPDATA%\ReadO</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#82b366"><b>server.py</b><span class="k">http.server · 127.0.0.1:8766</span><span class="s">트리·파일·검색·심볼·설정 API와 /vendor 정적 서빙. ripgrep이 있으면 rg, 없으면 Python 병렬 검색</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#d6b656"><b>source.html</b><span class="k">Monaco 0.45 · marked 12</span><span class="s">SPA 하나(1,768줄). 트리·탭·분할·Quick Open·FIF·설정 모달·테마</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#b85450"><b>build.bat</b><span class="k">PyInstaller onefile</span><span class="s">vendor가 없으면 fetch-vendor.py를 먼저 실행 → dist\reado.exe(오프라인)</span></div>
-</div>
+- **reado.py** — `pywebview 6.x · WebView2` — 서버 스레드 기동 → 준비될 때까지 폴링 → 창 생성. JS API는 <code>pick_dir</code> 하나뿐. config는 %APPDATA%\ReadO
+- **server.py** — `http.server · 127.0.0.1:8766` — 트리·파일·검색·심볼·설정 API와 /vendor 정적 서빙. ripgrep이 있으면 rg, 없으면 Python 병렬 검색
+- **source.html** — `Monaco 0.45 · marked 12` — SPA 하나(1,768줄). 트리·탭·분할·Quick Open·FIF·설정 모달·테마
+- **build.bat** — `PyInstaller onefile` — vendor가 없으면 fetch-vendor.py를 먼저 실행 → dist\reado.exe(오프라인)
 
 ---
 
 <a id="cat-2"></a>
 
-# <span class="num">2</span> 현재 기능 목록 <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+# 2 현재 기능 목록 
 
 > 8개 카테고리에 51개 기능. "비고"에는 동작은 하지만 제약이 있는 부분을 적었다.
 
@@ -278,7 +160,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 <a id="cat-3"></a>
 
-# <span class="num">3</span> 갭 리스트 <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+# 3 갭 리스트 
 
 > 우선순위는 상/중/하, 난이도는 하(반나절 이하)·중(1–3일)·상(3일 이상). 파일명은 `r`=reado.py, `s`=server.py, `h`=source.html로 줄여 썼다.
 
@@ -324,7 +206,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 <a id="cat-4"></a>
 
-# <span class="num">4</span> 불필요·중복·죽은 코드 <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+# 4 불필요·중복·죽은 코드 
 
 > 동작에는 영향이 없지만 정리할 대상이다. 행동이 달라지는 항목(G3·G12)은 갭 리스트에 넣었다.
 
@@ -348,16 +230,11 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 <a id="cat-5"></a>
 
-# <span class="num">5</span> 권장 착수 순서 <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+# 5 권장 착수 순서 
 
 > 버그와 작은 작업을 먼저 끝내고, 편집 기능은 보안 보강 다음에 넣는다.
 
-<div class="lay">
- <div class="cd" style="border-top-color:#82b366"><b><span class="st">1</span> 빠른 수정</b><span class="s">G3 확장자 칩, G4 저장소 유지, G12 검색 일관성, G6·G7 상태줄·보기 토글, D1–D5 정리</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#d6b656"><b><span class="st">2</span> 보안·기반</b><span class="s">G14 Host/Origin·CSRF, G15 포트, G5 변경 감지, G8 내비게이션 히스토리</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#b85450"><b><span class="st">3</span> 에디터화</b><span class="s">G1 편집·저장, G2 외부 파일 열기, G9 찾아 바꾸기, G10 파일 조작</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#6c8ebf"><b><span class="st">4</span> 편의</b><span class="s">G11 Markdown, G18 커맨드 팔레트, G16·G17, 탭·분할 확장</span></div>
-</div>
+- **1 빠른 수정** — G3 확장자 칩, G4 저장소 유지, G12 검색 일관성, G6·G7 상태줄·보기 토글, D1–D5 정리
+- **2 보안·기반** — G14 Host/Origin·CSRF, G15 포트, G5 변경 감지, G8 내비게이션 히스토리
+- **3 에디터화** — G1 편집·저장, G2 외부 파일 열기, G9 찾아 바꾸기, G10 파일 조작
+- **4 편의** — G11 Markdown, G18 커맨드 팔레트, G16·G17, 탭·분할 확장

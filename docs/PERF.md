@@ -1,124 +1,11 @@
 # ReadO 성능 측정 보고서
 
-<input type="radio" name="xall" id="xo" checked style="display:none">
-<input type="radio" name="xall" id="xc" style="display:none">
-<style>
-/* ═══ 1. 제목 위계 ═══════════════════════════════════════
-   좌측 막대는 h2 전용. 챕터(h1)는 옅은 밴드 + 번호 배지(.num), 소제목(h3)은 옅은 배지(.n3), 문서 제목은 밑줄.
-   <a id> 앵커는 <p>로 감싸져 "a + h1" 이 안 걸리므로 :first-of-type 로 구분. */
-h1 { font-size: 1.3em; font-weight: 800; color: #2f3640; background: #eef1f4;
-     border-radius: 6px; padding: 9px 13px 9px 10px; margin: 2.2em 0 1em }
-/* 챕터 번호 배지 — 제목 앞 <span class="num">N</span> (부록은 A) */
-.num { display: inline-block; min-width: 1.55em; text-align: center; background: #3f4650; color: #fff;
-       border-radius: 6px; padding: 2px 8px; margin-right: 10px; font-size: .9em; line-height: 1.35; vertical-align: 2px }
-h1:first-of-type { font-size: 1.5em; color: #212529; background: none; border-radius: 0;
-     border-bottom: 3px solid #343a40; padding: 0 0 7px; margin: 1.8em 0 .8em }
-h2 { font-size: 1.2em; font-weight: 700; color: #343a40;
-     border-left: 6px solid #343a40; padding: 2px 0 2px 11px; margin: 1.5em 0 .6em }
-h2:first-of-type { border-left: 0; padding-left: 0 }                          /* 목차 */
-details h2:first-of-type { border-left: 6px solid #343a40; padding-left: 11px } /* 부록 A.1 */
-h3 { font-size: 1.02em; font-weight: 700; color: #343a40; margin: 1.9em 0 .8em }   /* 항목 안 단락 경계 — 막대 없이 번호 배지로 */
-.n3 { display: inline-block; background: #f1f3f5; color: #5b6168; border: 1px solid #dfe3e7;   /* 소제목 배지 N.M.k — 항목 배지보다 한 단 옅게 */
-      border-radius: 4px; padding: 0 6px; margin-right: 8px; font-size: .82em; font-weight: 800; vertical-align: 1px }
-/* 본문 문단 간격 — 소제목→문단(.8em)보다 문단↔문단(.5em)이 작아야 "소제목이 문단을 거느린다"로 읽힌다. 넓으면 빈 줄이 들어간 듯 보인다(실제 지적) */
-.ib p { margin: .3em 0 .5em }
-h4 { font-size: .96em; font-weight: 700; color: #6c757d; margin: 1.5em 0 .5em }
-h4::before { content: "▸ "; color: #adb5bd }
-/* 제목 줄 우측 컨트롤 (float 이라 .hctl 이 든 heading 에만 걸린다) */
-.hctl { float: right; font-weight: 400; white-space: nowrap; margin-left: 14px }
-h1 .hctl { font-size: .6em; padding-top: .35em }
-h1 .hctl a { color: #0969da }
-h2 .hctl { font-size: .72em; padding-top: .18em }
-/* 부록 헤더(summary.apx) — 챕터 밴드와 같은 모양, 펼침 삼각형 없이 */
-summary.apx { list-style: none; cursor: pointer; font-size: 1.3em; font-weight: 800; color: #2f3640;
-     background: #eef1f4; border-radius: 6px; padding: 9px 13px 9px 10px; margin: 2.2em 0 1em }
-summary.apx::-webkit-details-marker { display: none }  summary.apx::marker { content: "" }
-summary.apx .hctl { font-size: .6em; padding-top: .35em }
-summary.apx .hctl a { color: #0969da }
-/* ═══ 2. 접히는 항목(.it) — 체크박스 방식 ══════════════════
-   native details 는 닫힌 내용을 shadow slot에서 숨겨 CSS로 못 되살린다
-   → '전체 접기' 뒤 개별 펼치기가 불가. 그래서 체크박스로 상태를 직접 가진다.
-   (CSS 주석에 꺾쇠 태그 리터럴을 쓰지 말 것 — 태그 균형 검사에 잡힌다)
-   모드별 체크박스 2개(.ca 펼침모드 / .cb 접기모드) → 모드 전환 시 반전 없음.
-   ★ .it 는 라디오의 직계 형제 → 모든 규칙에 "~ .it" 와 "~ * .it" 를 함께 쓴다. */
-.it { margin: 1.1em 0 1.5em }
-.it + .it { border-top: 1px dashed #e3e7ea; padding-top: .9em }   /* 항목 "사이"에만 점선 → 마지막 항목엔 선 없음 */
-.it > .ib { padding-left: 14px }                                    /* 본문 들여쓰기 — 헤더와 왼쪽 선이 같으면 소속이 안 보임 */
-.it > .ih { display: block; font-size: 1.02em; font-weight: 700; color: #2f3640;
-     padding: 4px 0; margin-bottom: .9em; cursor: pointer; user-select: none }
-.it > .ih:hover { color: #0969da }
-.it > .ih::after { content: "▼"; float: right; color: #adb5bd; font-size: .85em; padding-top: 2px }  /* 펼침 표시 = 우측 */
-.ih .n { display: inline-block; background: #e9edf1; color: #3f4650; border-radius: 5px;             /* 옅은 번호 배지 */
-         padding: 1px 7px; margin-right: 9px; font-size: .86em; font-weight: 800; vertical-align: 1px }
-.ih .sub { color: #6c757d; font-weight: 500; margin-left: 6px; font-size: .92em }                    /* 회색 부제 */
-/* 모드에 맞는 라벨 하나만 */
-#xo:checked ~ .it > .lb, #xo:checked ~ * .it > .lb,
-#xc:checked ~ .it > .la, #xc:checked ~ * .it > .la { display: none }
-/* 펼침 모드: 체크 = 사용자가 닫음 */
-#xo:checked ~ .it > .ca:checked ~ .ib,        #xo:checked ~ * .it > .ca:checked ~ .ib { display: none }
-#xo:checked ~ .it > .ca:checked ~ .la::after,  #xo:checked ~ * .it > .ca:checked ~ .la::after  { content: "▶" }
-/* 접기 모드: 체크 = 사용자가 열음 */
-#xc:checked ~ .it > .cb:not(:checked) ~ .ib,        #xc:checked ~ * .it > .cb:not(:checked) ~ .ib { display: none }
-#xc:checked ~ .it > .cb:not(:checked) ~ .lb::after,  #xc:checked ~ * .it > .cb:not(:checked) ~ .lb::after  { content: "▶" }
-/* 목차의 전체 펼치기/접기 라벨 — 현재 모드를 굵게 */
-#xo:checked ~ * label[for="xo"], #xc:checked ~ * label[for="xc"] { font-weight: 700 }
-/* ═══ 3. 콜아웃 — 막대 없이 둥근 박스 + 라벨 ═════════════════ */
-blockquote, .warn, .tip { border: 1px solid; border-radius: 7px;
-     margin: .9em 0 1.4em; padding: 9px 12px; color: #333 }
-blockquote { border-color: #cfe2f7; background: #f5f9fe }
-blockquote > p:first-child { margin-top: 0 }  blockquote > p:last-child { margin-bottom: 0 }
-h1 + blockquote, h2 + blockquote, h3 + blockquote { border: 0; background: none; border-radius: 0;   /* 제목 직후 > = 도입문(박스 아님) */
-     padding: 0 0 0 2px; margin: -.2em 0 1.3em; font-size: 1.02em; color: #5b6168 }
-.warn { border-color: #f0d9ac; background: #fffaf2 }
-.warn::before { content: "⚠️ 주의"; display: inline-block; font-weight: 800; font-size: .82em;
-     color: #a35d00; background: #fbeccc; border-radius: 20px; padding: 1px 9px; margin-right: 7px }
-.tip { border-color: #b9e5c9; background: #f2fbf5 }
-.tip::before { content: "💡 쉽게 말하면"; display: inline-block; font-weight: 800; font-size: .82em;
-     color: #0b6b39; background: #d8f2e2; border-radius: 20px; padding: 1px 9px; margin-right: 7px }
-/* ═══ 4. 표 · 코드 · 구분선 ════════════════════════════════
-   표는 좁은 화면에서 표 안에서만 가로 스크롤. th 배경 없으면 본문 zebra보다 약해 보임. */
-table { margin: .5em 0 1.5em !important; display: block; width: max-content;
-        max-width: 100%; overflow-x: auto; border-collapse: collapse }
-th, td { border: 1px solid #e4e7eb; padding: 6px 10px; text-align: left; vertical-align: top }
-th { background: #e9edf1; color: #2f3640; font-weight: 700; text-align: center;   /* 배경으로 구분 → 테두리 없이 · 가운데 정렬 (실제 지적) */
-     border: 0; white-space: nowrap }
-pre { margin: .6em 0 1.5em !important; overflow-x: auto }
-code { background: #f1f3f5; padding: 1px 5px; border-radius: 3px; font-size: .92em }
-.cap { font-size: .86em; color: #868e96; margin: .3em 0 1.5em; padding-left: 2px }
-table + .cap, pre + .cap { margin-top: -1.1em }        /* 표·코드 아래 캡션만 붙인다 — 도표 뒤에 음수면 겹친다(실제 사례) */
-div[style*="Noto Sans KR"] { margin: .7em 0 1.5em }      /* 카드 흐름도 컨테이너 하단 여백 */
-ul, ol { margin: .6em 0 1em }
-hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은 h1 밴드가 함 */
-/* ═══ 5. 흐름 카드 — nowrap + 가로 스크롤 (wrap이면 좁은 화면에서 세로로 쌓임) ═══ */
-.lay { display: flex; flex-wrap: nowrap; gap: 8px; margin: .7em 0 1.6em;
-       align-items: stretch; overflow-x: auto; padding-bottom: 6px }
-.cd { flex: 0 0 200px; border: 1px solid #e4e7eb; border-top-width: 4px; border-radius: 7px;
-      padding: 8px 10px; background: #fff; font-size: 12px; line-height: 1.5 }
-.cd > b { display: block; font-size: 12.5px; margin-bottom: 2px }
-.cd .k { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: #495057 }
-.cd .s { display: block; margin-top: 4px; color: #6c757d; font-size: 11px }
-.ar { align-self: center; color: #adb5bd; font-weight: 800; font-size: 16px; flex: 0 0 auto }
-.tg { display: inline-block; font-size: 10.5px; font-weight: 700; border-radius: 20px;
-      padding: 1px 8px; margin-right: 4px }
-/* ═══ 6. 번호 배지(.cn) — 원문자(circled digits) 대체 ═══════════════════
-   U+2460~2473 은 폰트 대체(fallback)로 2·3·5·6 등 일부 글리프 모양이 달라진다(실제 지적).
-   본문·표·캡션의 번호는 항상 <span class="cn">N</span> 으로 쓴다. 코드/SQL 안은 (1)(2) 로. */
-.cn { display: inline-block; min-width: 1.55em; height: 1.55em; padding: 0 .2em; border-radius: 50%;
-      border: 1.5px solid #3f4650; color: #2f3640; background: #fff; text-align: center;
-      line-height: 1.45em; font-weight: 800; font-size: .82em; font-family: ui-monospace, Consolas, monospace;
-      vertical-align: .08em; margin: 0 .12em }
-/* 순서·단계 번호(1→2→3)는 .st(사각), 분류·종류 번호(상품종류 ①~⑥ 등)는 .cn(원형) — 같은 문서에서 두 뜻이 섞이면 모양으로 구분한다 */
-.st { display: inline-block; min-width: 1.4em; height: 1.4em; padding: 0 .25em; border-radius: 3px;              /* 순서·단계 번호 — 분류 배지(.cn)와 모양을 가른다 */
-      background: #e9edf1; color: #3f4650; text-align: center; line-height: 1.4em; font-weight: 700; font-size: .8em;
-      font-family: ui-monospace, Consolas, monospace; vertical-align: .08em; margin: 0 .12em }
-</style>
-
 **측정일**: 2026-10-07  
 **기준 소스**: 커밋 `aebd051` + 작업 트리(`reado.py`·`README.md` 수정분) · `server.py` 772줄 · `source.html` 1768줄  
 **환경**: Windows 11 Home 10.0.26200 · Python 3.12.10 · pywebview 6.2.1 · PyInstaller 6.21 · Playwright Chromium 1228(headless) · ripgrep **미설치**  
 **범위**: 측정과 보고만 한다. 소스 코드는 수정하지 않았고, 측정 스크립트와 합성 코퍼스는 프로젝트 밖(세션 scratchpad)에 두었다.
 
-<div class="warn">아래 <code>source.html</code> 라인 번호는 2026-10-07 시점 기준이다. 다른 세션이 곧 이 파일을 수정하므로, 적용할 때는 함수명으로 위치를 다시 찾는다.</div>
+> 아래 <code>source.html</code> 라인 번호는 2026-10-07 시점 기준이다. 다른 세션이 곧 이 파일을 수정하므로, 적용할 때는 함수명으로 위치를 다시 찾는다.
 
 **범례 (영역·색)**
 - 🟦 **서버** — `server.py`, `reado.py` (Python HTTP 서버·런처)
@@ -127,7 +14,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 <a id="toc"></a>
 
-## 목차 <span class="hctl"><label for="xo" style="color:#0969da;cursor:pointer;text-decoration:underline">▼ 전체 펼치기</label> · <label for="xc" style="color:#0969da;cursor:pointer;text-decoration:underline">▶ 전체 접기</label></span>
+## 목차 
 
 - [**1. 요약**](#cat-1) — 핵심 수치 · 시작 타임라인 · 병목 Top 10 한눈에
 - [**2. 측정 방법**](#cat-2) (3 항목)
@@ -142,7 +29,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 <a id="cat-1"></a>
 
-# <span class="num">1</span> 요약 <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+# 1 요약 
 
 > 가장 큰 문제는 서버다. 단일 스레드 HTTP 서버에서 Python 검색·심볼 찾기가 수 초~수십 초 걸리고, 그 동안 트리·파일 열기까지 함께 멈춘다.
 
@@ -171,22 +58,14 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 ### 시작 타임라인 (exe, 웜 스타트 기준)
 
-<div style="font-family:'Noto Sans KR',sans-serif">
-<div class="lay">
- <div class="cd" style="border-top-color:#cf7700"><b>exe 실행</b><span class="k">t = 0</span><span class="s">onefile 압축 해제 시작</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#cf7700"><b>압축 해제 + Python 기동</b><span class="k">≈ 2.2 ~ 4.1 s</span><span class="s">소스 실행이면 0.39 s — 차이는 대부분 onefile 해제</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#1a4d8f"><b>서버 응답</b><span class="k">2.6 ~ 4.5 s</span><span class="s">reado.py:96 <code>wait_ready()</code> 통과 후에야 창 생성</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#7c3aed"><b>WebView2 기동</b><span class="k">+ 2.3 s</span><span class="s">msedgewebview2 프로세스 6개</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#7c3aed"><b>페이지·Monaco 로드</b><span class="k">+ 1.4 ~ 2.3 s</span><span class="s">private_mode 라 매 실행 7 MB 재전송</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#1a7f37"><b>사용 가능</b><span class="k">6.4 ~ 8.2 s</span><span class="s">첫 실행 14.1 s</span></div>
-</div>
-</div>
-<div class="cap">웜 스타트 3회 측정값의 범위. 각 구간은 서로 다른 실행의 값이라 합이 정확히 맞지는 않는다.</div>
+- **exe 실행** — `t = 0` — onefile 압축 해제 시작
+- **압축 해제 + Python 기동** — `≈ 2.2 ~ 4.1 s` — 소스 실행이면 0.39 s — 차이는 대부분 onefile 해제
+- **서버 응답** — `2.6 ~ 4.5 s` — reado.py:96 <code>wait_ready()</code> 통과 후에야 창 생성
+- **WebView2 기동** — `+ 2.3 s` — msedgewebview2 프로세스 6개
+- **페이지·Monaco 로드** — `+ 1.4 ~ 2.3 s` — private_mode 라 매 실행 7 MB 재전송
+- **사용 가능** — `6.4 ~ 8.2 s` — 첫 실행 14.1 s
+
+> 웜 스타트 3회 측정값의 범위. 각 구간은 서로 다른 실행의 값이라 합이 정확히 맞지는 않는다.
 
 ### 병목 Top 10 한눈에
 
@@ -210,16 +89,11 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 <a id="cat-2"></a>
 
-# <span class="num">2</span> 측정 방법 <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+# 2 측정 방법 
 
 > 실제 코드를 그대로 import 하거나 실행하고, 설정값만 메모리에서 바꿔 측정했다. 프로젝트 파일은 건드리지 않았다.
 
-<div class="it">
-<input type="checkbox" id="i2-1a" class="ca" style="display:none">
-<input type="checkbox" id="i2-1b" class="cb" style="display:none">
-<label for="i2-1a" class="ih la"><span class="n">2.1</span><b>합성 코퍼스</b> <span class="sub">3만 파일 · 260 MB</span></label>
-<label for="i2-1b" class="ih lb"><span class="n">2.1</span><b>합성 코퍼스</b> <span class="sub">3만 파일 · 260 MB</span></label>
-<div class="ib">
+## 2.1 합성 코퍼스 — 3만 파일 · 260 MB
 
 <table>
 <thead><tr><th style="white-space:nowrap">폴더</th><th style="white-space:nowrap">구성</th><th style="white-space:nowrap">용도</th></tr></thead>
@@ -232,14 +106,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 인덱스 대상 파일은 25,007개(무시 규칙 적용 후)다. 실제 사용 경로인 <code>c:\Projects</code> 는 측정하지 않았다 — 저장소 규모에 따라 수치가 비례해 커진다.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i2-2a" class="ca" style="display:none">
-<input type="checkbox" id="i2-2b" class="cb" style="display:none">
-<label for="i2-2a" class="ih la"><span class="n">2.2</span><b>측정 도구</b> <span class="sub">서버 · 프론트 · exe 세 갈래</span></label>
-<label for="i2-2b" class="ih lb"><span class="n">2.2</span><b>측정 도구</b> <span class="sub">서버 · 프론트 · exe 세 갈래</span></label>
-<div class="ib">
+## 2.2 측정 도구 — 서버 · 프론트 · exe 세 갈래
 
 <table>
 <thead><tr><th style="white-space:nowrap">대상</th><th style="white-space:nowrap">방법</th><th style="white-space:nowrap">반복</th></tr></thead>
@@ -250,37 +117,22 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 </tbody>
 </table>
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i2-3a" class="ca" style="display:none">
-<input type="checkbox" id="i2-3b" class="cb" style="display:none">
-<label for="i2-3a" class="ih la"><span class="n">2.3</span><b>측정의 한계</b> <span class="sub">수치를 읽을 때 감안할 점</span></label>
-<label for="i2-3b" class="ih lb"><span class="n">2.3</span><b>측정의 한계</b> <span class="sub">수치를 읽을 때 감안할 점</span></label>
-<div class="ib">
+## 2.3 측정의 한계 — 수치를 읽을 때 감안할 점
 
 - **스크롤·타이핑 프레임 시간은 상대 비교용이다.** headless Chromium 은 GPU 없이 소프트웨어로 그리므로 작은 파일도 프레임이 20 ms 안팎이다. 절대값보다 “작은 파일 대비 몇 배”로 읽는다.
 - **편집은 현재 기능이 아니다.** 에디터가 `readOnly: true`(`source.html:613`)라서, 측정할 때만 읽기 전용을 잠시 풀고 `type` 명령으로 30자를 입력했다.
 - **ripgrep 이 PATH 에 없다.** 그래서 모든 검색 수치는 Python 대체 경로다. rg 가 있는 PC 에서는 검색이 훨씬 빠르지만, exe 에 rg 가 동봉되지 않으므로 일반 사용자는 대체 경로를 탄다.
 - 첫 실행(콜드) 수치는 OS 파일 캐시·백신 검사 영향이 크다.
 
-</div>
-</div>
-
 ---
 
 <a id="cat-3"></a>
 
-# <span class="num">3</span> 측정 결과 <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+# 3 측정 결과 
 
 > 영역별 원시 수치. 병목 해석은 4장에 있다.
 
-<div class="it">
-<input type="checkbox" id="i3-1a" class="ca" style="display:none">
-<input type="checkbox" id="i3-1b" class="cb" style="display:none">
-<label for="i3-1a" class="ih la"><span class="n">3.1</span><b>🟧 앱 시작 시간</b> <span class="sub">dist/reado.exe · 실제 WebView2</span></label>
-<label for="i3-1b" class="ih lb"><span class="n">3.1</span><b>🟧 앱 시작 시간</b> <span class="sub">dist/reado.exe · 실제 WebView2</span></label>
-<div class="ib">
+## 3.1 🟧 앱 시작 시간 — dist/reado.exe · 실제 WebView2
 
 <table>
 <thead><tr><th style="white-space:nowrap">실행</th><th style="white-space:nowrap">서버 응답</th><th style="white-space:nowrap">WebView2 기동</th><th style="white-space:nowrap">Monaco 준비</th><th style="white-space:nowrap">트리 표시</th><th style="white-space:nowrap">페이지 DCL / load</th></tr></thead>
@@ -295,14 +147,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 - 브라우저만 따로 재면(headless) 페이지 로드 → Monaco 준비 630 ms, 요청 15개 · 7.0 MB. 첫 로드는 2.1 s.
 - pywebview `start()` 의 `private_mode` 기본값이 `True` 라 HTTP 캐시가 실행마다 비워진다. `/vendor/` 의 `immutable` 캐시 헤더(`server.py:741`)가 앱 재실행 사이에는 효과가 없다.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i3-2a" class="ca" style="display:none">
-<input type="checkbox" id="i3-2b" class="cb" style="display:none">
-<label for="i3-2a" class="ih la"><span class="n">3.2</span><b>🟦 서버 API 응답 시간</b> <span class="sub">가벼운 엔드포인트 · 파일 · Quick Open</span></label>
-<label for="i3-2b" class="ih lb"><span class="n">3.2</span><b>🟦 서버 API 응답 시간</b> <span class="sub">가벼운 엔드포인트 · 파일 · Quick Open</span></label>
-<div class="ib">
+## 3.2 🟦 서버 API 응답 시간 — 가벼운 엔드포인트 · 파일 · Quick Open
 
 <table>
 <thead><tr><th style="white-space:nowrap">엔드포인트</th><th style="white-space:nowrap">조건</th><th style="white-space:nowrap">중앙값</th><th style="white-space:nowrap">응답 크기</th></tr></thead>
@@ -324,14 +169,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 함수 단위: `_walk_files` 1,335 ms(2.5만 파일) · `_is_text_file` 10만 회 648 ms · `_is_ignored` 10만 회 308 ms.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i3-3a" class="ca" style="display:none">
-<input type="checkbox" id="i3-3b" class="cb" style="display:none">
-<label for="i3-3a" class="ih la"><span class="n">3.3</span><b>🟦 찾기 · 정의로 이동</b> <span class="sub">Python 대체 경로 · 2.5만 파일</span></label>
-<label for="i3-3b" class="ih lb"><span class="n">3.3</span><b>🟦 찾기 · 정의로 이동</b> <span class="sub">Python 대체 경로 · 2.5만 파일</span></label>
-<div class="ib">
+## 3.3 🟦 찾기 · 정의로 이동 — Python 대체 경로 · 2.5만 파일
 
 <table>
 <thead><tr><th style="white-space:nowrap">요청</th><th style="white-space:nowrap">조건</th><th style="white-space:nowrap">시간</th><th style="white-space:nowrap">비고</th></tr></thead>
@@ -351,14 +189,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 - 일치가 적은 검색일수록 느리다 — 500건 상한에서 조기 종료하지 못하고 전 파일을 끝까지 훑기 때문이다.
 - 화면 쪽 비용은 작다: 결과 500건 렌더(`renderFIFResults`) 13 ms.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i3-4a" class="ca" style="display:none">
-<input type="checkbox" id="i3-4b" class="cb" style="display:none">
-<label for="i3-4a" class="ih la"><span class="n">3.4</span><b>🟦🟪 폴더 트리 로딩</b> <span class="sub">한 폴더에 5,700항목</span></label>
-<label for="i3-4b" class="ih lb"><span class="n">3.4</span><b>🟦🟪 폴더 트리 로딩</b> <span class="sub">한 폴더에 5,700항목</span></label>
-<div class="ib">
+## 3.4 🟦🟪 폴더 트리 로딩 — 한 폴더에 5,700항목
 
 <table>
 <thead><tr><th style="white-space:nowrap">구간</th><th style="white-space:nowrap">시간</th><th style="white-space:nowrap">비고</th></tr></thead>
@@ -370,14 +201,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 트리는 한 단계씩 지연 로딩하므로 폴더 깊이는 문제가 아니다. 한 폴더 안 항목 수에 비례해 서버 stat 비용과 DOM 생성 비용이 함께 늘어난다.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i3-5a" class="ca" style="display:none">
-<input type="checkbox" id="i3-5b" class="cb" style="display:none">
-<label for="i3-5a" class="ih la"><span class="n">3.5</span><b>🟪 대용량 파일 열기 · 스크롤 · 편집</b> <span class="sub">headless Chromium · 기준은 4 KB 파일</span></label>
-<label for="i3-5b" class="ih lb"><span class="n">3.5</span><b>🟪 대용량 파일 열기 · 스크롤 · 편집</b> <span class="sub">headless Chromium · 기준은 4 KB 파일</span></label>
-<div class="ib">
+## 3.5 🟪 대용량 파일 열기 · 스크롤 · 편집 — headless Chromium · 기준은 4 KB 파일
 
 <table>
 <thead><tr><th style="white-space:nowrap">파일</th><th style="white-space:nowrap">줄 수</th><th style="white-space:nowrap">열기 → 그려짐</th><th style="white-space:nowrap">스크롤 프레임 평균 / p95</th><th style="white-space:nowrap">타이핑 키→프레임 중앙 / p95</th><th style="white-space:nowrap">힙</th></tr></thead>
@@ -400,14 +224,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 - 기본 상한 2 MB 때문에 5 MB 이상 파일은 앞부분만 보인다. 사용자에게는 토스트 한 번만 뜬다.
 - 2 MB 탭 10개를 열면 힙 81 → 124 MB(탭당 약 5 MB). 탭을 닫으면 모델을 dispose 하므로 누수는 보이지 않았다.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i3-6a" class="ca" style="display:none">
-<input type="checkbox" id="i3-6b" class="cb" style="display:none">
-<label for="i3-6a" class="ih la"><span class="n">3.6</span><b>메모리 사용</b> <span class="sub">프로세스 · JS 힙 · 서버 캐시</span></label>
-<label for="i3-6b" class="ih lb"><span class="n">3.6</span><b>메모리 사용</b> <span class="sub">프로세스 · JS 힙 · 서버 캐시</span></label>
-<div class="ib">
+## 3.6 메모리 사용 — 프로세스 · JS 힙 · 서버 캐시
 
 <table>
 <thead><tr><th style="white-space:nowrap">대상</th><th style="white-space:nowrap">측정값</th><th style="white-space:nowrap">비고</th></tr></thead>
@@ -421,14 +238,7 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 
 메모리 대부분은 WebView2(Chromium) 기본 비용이고 앱 코드가 쓰는 양은 작다. 위험 요소는 바이트 상한이 없는 서버 캐시와 큰 파일을 열 때 생기는 일시적 사본이다(JSON 직렬화 문자열 + 바이트 + 디코드 문자열).
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i3-7a" class="ca" style="display:none">
-<input type="checkbox" id="i3-7b" class="cb" style="display:none">
-<label for="i3-7a" class="ih la"><span class="n">3.7</span><b>🟧 번들 크기</b> <span class="sub">dist · vendor</span></label>
-<label for="i3-7b" class="ih lb"><span class="n">3.7</span><b>🟧 번들 크기</b> <span class="sub">dist · vendor</span></label>
-<div class="ib">
+## 3.7 🟧 번들 크기 — dist · vendor
 
 <table>
 <thead><tr><th style="white-space:nowrap">항목</th><th style="white-space:nowrap">크기</th><th style="white-space:nowrap">실제 사용 여부</th></tr></thead>
@@ -444,59 +254,37 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 </tbody>
 </table>
 
-</div>
-</div>
-
 ---
 
 <a id="cat-4"></a>
 
-# <span class="num">4</span> 병목 Top 10 <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+# 4 병목 Top 10 
 
 > 사용자 체감 영향이 큰 순서. 각 항목은 위치 · 원인 · 근거 수치로 나눴다.
 
-<div class="it">
-<input type="checkbox" id="i4-1a" class="ca" style="display:none">
-<input type="checkbox" id="i4-1b" class="cb" style="display:none">
-<label for="i4-1a" class="ih la"><span class="n">4.1</span><b>🟦 단일 스레드 HTTP 서버</b> <span class="sub"><code>reado.py:68</code> · <code>server.py:766</code></span></label>
-<label for="i4-1b" class="ih lb"><span class="n">4.1</span><b>🟦 단일 스레드 HTTP 서버</b> <span class="sub"><code>reado.py:68</code> · <code>server.py:766</code></span></label>
-<div class="ib">
+## 4.1 🟦 단일 스레드 HTTP 서버 — reado.py:68 · server.py:766
 
-### <span class="n3">4.1.1</span>원인
+### 4.1.1원인
 
 `http.server.HTTPServer` 는 요청을 하나씩 처리한다. 검색(최대 32 s)·정의로 이동(9 s)·인덱스 재구축(1.7 s)이 도는 동안 트리 펼치기, 파일 열기, 설정 조회가 모두 줄을 선다. 프론트는 `AbortController` 로 이전 검색을 취소하지만(`source.html:1103`), 서버는 이미 시작한 검색을 끝까지 계속한다.
 
-### <span class="n3">4.1.2</span>근거
+### 4.1.2근거
 
 단독 338 ms 인 트리 요청이 콜드 검색 중에는 **9,103 ms** 걸렸다. 사용자에겐 “검색하면 앱 전체가 멈춘다”로 보인다.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i4-2a" class="ca" style="display:none">
-<input type="checkbox" id="i4-2b" class="cb" style="display:none">
-<label for="i4-2a" class="ih la"><span class="n">4.2</span><b>🟦 본문 캐시 상한 5,000개 + FIFO 축출</b> <span class="sub"><code>server.py:396-431</code></span></label>
-<label for="i4-2b" class="ih lb"><span class="n">4.2</span><b>🟦 본문 캐시 상한 5,000개 + FIFO 축출</b> <span class="sub"><code>server.py:396-431</code></span></label>
-<div class="ib">
+## 4.2 🟦 본문 캐시 상한 5,000개 + FIFO 축출 — server.py:396-431
 
-### <span class="n3">4.2.1</span>원인
+### 4.2.1원인
 
 `_CONTENT_CACHE_LIMIT = 5000`(`:397`). 가득 차면 삽입 순서로 앞 10%를 지운다(`:427-430`). 파일이 5,000개를 넘는 저장소에서는 검색 한 번이 캐시를 처음부터 끝까지 갈아엎어, 다음 검색이 다시 거의 전부를 디스크에서 읽는다. 게다가 캐시가 맞아도 파일마다 `getmtime` + `getsize` 로 stat 을 2번 한다(`:402-403`).
 
-### <span class="n3">4.2.2</span>근거
+### 4.2.2근거
 
 2.5만 파일 콜드 검색 후 캐시는 4,503개만 남았고, 반복 검색(일치 없음)이 **7.1 s** 걸렸다. 캐시가 효과를 내는 건 5,000개 이하 저장소뿐이다.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i4-3a" class="ca" style="display:none">
-<input type="checkbox" id="i4-3b" class="cb" style="display:none">
-<label for="i4-3a" class="ih la"><span class="n">4.3</span><b>🟦 Python 대체 검색 엔진</b> <span class="sub"><code>server.py:390-393</code> · <code>526-630</code> · rg 미동봉</span></label>
-<label for="i4-3b" class="ih lb"><span class="n">4.3</span><b>🟦 Python 대체 검색 엔진</b> <span class="sub"><code>server.py:390-393</code> · <code>526-630</code> · rg 미동봉</span></label>
-<div class="ib">
+## 4.3 🟦 Python 대체 검색 엔진 — server.py:390-393 · 526-630 · rg 미동봉
 
-### <span class="n3">4.3.1</span>원인
+### 4.3.1원인
 
 - `RIPGREP = shutil.which("rg")`(`:393`) — exe 에 rg 가 들어 있지 않아 대부분의 PC 에서 대체 경로를 탄다.
 - `ThreadPoolExecutor(max_workers=32)`(`:392`): 파일 읽기는 병렬이지만 디코드·정규식은 GIL 때문에 사실상 한 코어에서 돈다.
@@ -504,149 +292,97 @@ hr { border: 0; margin: 2.2em 0 }   /* 선 없이 여백만 — 챕터 구분은
 - 단어 단위는 `(?<!\w)…(?!\w)` + `IGNORECASE` 로 바뀌어(`:569`) 일반 검색보다 7배 느리다.
 - 일치가 적으면 500건 상한에 닿지 못해 조기 종료가 없다.
 
-### <span class="n3">4.3.2</span>rg 경로의 잠재 문제
+### 4.3.2rg 경로의 잠재 문제
 
 rg 가 있는 PC 에서도 `subprocess.run(capture_output=True)`(`:458`)로 **출력 전체를 메모리에 받은 뒤** 파싱한다. 전체 결과 상한이 없고(`--max-count 100` 은 파일당), `--max-columns` 도 없어 한 줄짜리 큰 파일이 걸리면 JSON 한 줄이 수 MB 가 된다. 500건에서 파싱을 멈춰도 rg 는 끝까지 돈다.
 
-### <span class="n3">4.3.3</span>근거
+### 4.3.3근거
 
 콜드 **32.6 s**, 단어 단위 **12.3 s**, 일반 검색 웜 7.1 s(2.5만 파일 · 166 MB).
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i4-4a" class="ca" style="display:none">
-<input type="checkbox" id="i4-4b" class="cb" style="display:none">
-<label for="i4-4a" class="ih la"><span class="n">4.4</span><b>🟦 정의로 이동이 전 파일 순차 스캔</b> <span class="sub"><code>server.py:229-285</code></span></label>
-<label for="i4-4b" class="ih lb"><span class="n">4.4</span><b>🟦 정의로 이동이 전 파일 순차 스캔</b> <span class="sub"><code>server.py:229-285</code></span></label>
-<div class="ib">
+## 4.4 🟦 정의로 이동이 전 파일 순차 스캔 — server.py:229-285
 
-### <span class="n3">4.4.1</span>원인
+### 4.4.1원인
 
 `goto_symbol` 은 인덱스의 모든 파일을 스레드 풀 없이 **순차로** `_get_content` 한 뒤(`:261-267`), 일치한 파일을 `splitlines()` 해서 줄마다 `word_pat` 과 복잡한 `decl_pat` 을 돌린다. rg 경로도 쓰지 않는다. 4.2 의 캐시 축출 문제도 그대로 받는다. 선언이 여러 개면 프론트가 다시 `/api/search` 를 부르므로(`source.html:1638` `gotoDefinition`) 같은 스캔을 한 번 더 한다.
 
-### <span class="n3">4.4.2</span>근거
+### 4.4.2근거
 
 Ctrl+B 한 번에 **9.0 ~ 10.1 s**. 그동안 서버 전체가 멈춘다(4.1).
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i4-5a" class="ca" style="display:none">
-<input type="checkbox" id="i4-5b" class="cb" style="display:none">
-<label for="i4-5a" class="ih la"><span class="n">4.5</span><b>🟧 onefile 빌드와 직렬 시작</b> <span class="sub"><code>build.bat:31</code> · <code>reado.spec</code> · <code>reado.py:96</code></span></label>
-<label for="i4-5b" class="ih lb"><span class="n">4.5</span><b>🟧 onefile 빌드와 직렬 시작</b> <span class="sub"><code>build.bat:31</code> · <code>reado.spec</code> · <code>reado.py:96</code></span></label>
-<div class="ib">
+## 4.5 🟧 onefile 빌드와 직렬 시작 — build.bat:31 · reado.spec · reado.py:96
 
-### <span class="n3">4.5.1</span>원인
+### 4.5.1원인
 
 - `--onefile` 은 실행할 때마다 22.6 MB 를 임시 폴더에 풀고 나서 Python 을 띄운다. 백신 검사도 이때 걸린다.
 - `main()` 이 `wait_ready()`(`:96`)로 서버 응답을 확인한 뒤에야 `create_window` 를 호출해, 창이 늦게 뜨고 WebView2 기동(약 2.3 s)이 서버 준비와 겹치지 않는다.
 - `private_mode=True`(pywebview 기본값)라 Monaco 등 7 MB 를 실행마다 다시 받는다.
 
-### <span class="n3">4.5.2</span>근거
+### 4.5.2근거
 
 서버 응답이 exe 2.6 ~ 4.5 s 인데 소스 실행은 0.39 s. 사용 가능까지 웜 6.4 ~ 8.2 s, 콜드 14.1 s.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i4-6a" class="ca" style="display:none">
-<input type="checkbox" id="i4-6b" class="cb" style="display:none">
-<label for="i4-6a" class="ih la"><span class="n">4.6</span><b>🟦 인덱스 동기 재구축 + 필터 함수 비효율</b> <span class="sub"><code>server.py:63-73</code> · <code>151-162</code> · <code>309-318</code></span></label>
-<label for="i4-6b" class="ih lb"><span class="n">4.6</span><b>🟦 인덱스 동기 재구축 + 필터 함수 비효율</b> <span class="sub"><code>server.py:63-73</code> · <code>151-162</code> · <code>309-318</code></span></label>
-<div class="ib">
+## 4.6 🟦 인덱스 동기 재구축 + 필터 함수 비효율 — server.py:63-73 · 151-162 · 309-318
 
-### <span class="n3">4.6.1</span>원인
+### 4.6.1원인
 
 - `_ensure_index` 는 60초가 지나면 **요청을 처리하는 도중에** `os.walk` 로 전체를 다시 훑는다(`:155-157`). 잠시 쉬었다가 Quick Open 을 누르면 첫 글자에서 1.7 s 를 기다린다.
 - `_is_text_file` 이 호출될 때마다 `_allowed_exts()` 가 확장자 집합을 새로 만든다(`:63-65`). 파일 하나당 6.5 µs.
 - `_is_ignored` 는 호출마다 패턴 목록을 돌며 `lower()` 와 `fnmatch` 를 반복한다(`:311-317`).
 
-### <span class="n3">4.6.2</span>근거
+### 4.6.2근거
 
 인덱스 구축 1,695 ms 중 `_walk_files` 1,335 ms. `_is_text_file` 10만 회 648 ms, `_is_ignored` 10만 회 308 ms — 걷기 시간의 상당 부분이 필터 함수다.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i4-7a" class="ca" style="display:none">
-<input type="checkbox" id="i4-7b" class="cb" style="display:none">
-<label for="i4-7a" class="ih la"><span class="n">4.7</span><b>🟦🟪 큰 폴더의 트리 로딩</b> <span class="sub"><code>server.py:336-360</code> · <code>source.html:950-990</code></span></label>
-<label for="i4-7b" class="ih lb"><span class="n">4.7</span><b>🟦🟪 큰 폴더의 트리 로딩</b> <span class="sub"><code>server.py:336-360</code> · <code>source.html:950-990</code></span></label>
-<div class="ib">
+## 4.7 🟦🟪 큰 폴더의 트리 로딩 — server.py:336-360 · source.html:950-990
 
-### <span class="n3">4.7.1</span>원인
+### 4.7.1원인
 
 - 서버: `os.listdir` 후 항목마다 `os.path.isdir` + `os.path.getsize` 로 stat 2회(`:351-352`) + 4.6 의 필터 함수. Windows 에서 `os.scandir` 를 쓰면 stat 정보가 목록과 함께 와서 추가 호출이 필요 없다.
 - 프론트: 항목마다 `createElement` + 템플릿 `innerHTML` + `addEventListener` + `appendChild` 를 바로 DOM 에 한다(`:950-990`). 폴더 노드 클릭 때마다 `querySelector('.caret')` 도 한다. 화면에 보이는 수십 개만 그려도 되는 상황에서 전부 그린다.
 
-### <span class="n3">4.7.2</span>근거
+### 4.7.2근거
 
 5,200항목 폴더: 서버 338 ms + 화면 약 370 ms = **707 ms**, DOM 요소 21,216개.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i4-8a" class="ca" style="display:none">
-<input type="checkbox" id="i4-8b" class="cb" style="display:none">
-<label for="i4-8a" class="ih la"><span class="n">4.8</span><b>🟪🟧 읽기 전용 뷰어에 언어 서비스 워커</b> <span class="sub"><code>source.html:806</code> · <code>vendor/monaco/vs/language</code></span></label>
-<label for="i4-8b" class="ih lb"><span class="n">4.8</span><b>🟪🟧 읽기 전용 뷰어에 언어 서비스 워커</b> <span class="sub"><code>source.html:806</code> · <code>vendor/monaco/vs/language</code></span></label>
-<div class="ib">
+## 4.8 🟪🟧 읽기 전용 뷰어에 언어 서비스 워커 — source.html:806 · vendor/monaco/vs/language
 
-### <span class="n3">4.8.1</span>원인
+### 4.8.1원인
 
 `createModel(data.text, langFor(path))` 로 `javascript`/`typescript`/`json`/`css`/`html` 모델을 만들면 Monaco 가 해당 언어 서비스를 켜고 Web Worker 를 띄워 파일 전체를 진단한다. 에디터가 읽기 전용이라 자동완성·진단이 필요 없는데도 실행된다. `MonacoEnvironment` 설정이 없어 워커 경로를 기본값으로 찾는다.
 
-### <span class="n3">4.8.2</span>근거
+### 4.8.2근거
 
 .js 파일을 처음 열 때 `tsMode.js` 24 KB + `workerMain.js` 340 KB × 2 + **`tsWorker.js` 4.6 MB** 를 추가로 받았다. .json 은 `jsonMode.js` + `jsonWorker.js` 129 KB + 워커 1개. vendor 15 MB 중 언어 서비스(5.9 MB)와 다국어 파일(1.9 MB)이 절반이다.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i4-9a" class="ca" style="display:none">
-<input type="checkbox" id="i4-9b" class="cb" style="display:none">
-<label for="i4-9a" class="ih la"><span class="n">4.9</span><b>🟦🟪 대용량 파일 처리</b> <span class="sub"><code>server.py:58</code> · <code>363-387</code> · <code>source.html:797-806</code></span></label>
-<label for="i4-9b" class="ih lb"><span class="n">4.9</span><b>🟦🟪 대용량 파일 처리</b> <span class="sub"><code>server.py:58</code> · <code>363-387</code> · <code>source.html:797-806</code></span></label>
-<div class="ib">
+## 4.9 🟦🟪 대용량 파일 처리 — server.py:58 · 363-387 · source.html:797-806
 
-### <span class="n3">4.9.1</span>원인
+### 4.9.1원인
 
 - `max_file_bytes` 2 MB(`:58`)를 넘으면 앞 2 MB 만 보내고(`:373-376`) 프론트는 토스트만 띄운다. 나머지를 볼 방법이 없다. 바이트 단위로 자르므로 UTF-8 다중 바이트 글자 중간에서 잘리면 `utf-8` 디코드가 실패하고 `cp949`/`latin-1` 로 잘못 해석될 수 있다(`:380-385`).
 - 본문을 JSON 문자열에 담아 보낸다(`:383`, `_send` 의 `json.dumps`). 서버는 바이트 → 문자열 → 이스케이프된 JSON → 바이트로 사본을 3번 만들고, 브라우저는 다시 JSON 파싱을 한다.
 - 큰 파일·긴 줄용 에디터 설정이 없다(`source.html:611-619`). 한 줄짜리 2 MB 파일은 키 입력마다 그 줄 전체를 다시 처리한다.
 
-### <span class="n3">4.9.2</span>근거
+### 4.9.2근거
 
 상한을 풀면 50 MB 파일이 서버 397 ms(54.6 MB JSON) + 화면 913 ms, 힙 132 MB. 한 줄 JSON 의 타이핑 지연은 키당 93 ~ 114 ms(기준 22 ms), 가로 스크롤 최대 425 ms 프레임.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i4-10a" class="ca" style="display:none">
-<input type="checkbox" id="i4-10b" class="cb" style="display:none">
-<label for="i4-10a" class="ih la"><span class="n">4.10</span><b>🟪 Markdown 미리보기</b> <span class="sub"><code>source.html:575-577</code> · <code>744</code> · <code>801-803</code></span></label>
-<label for="i4-10b" class="ih lb"><span class="n">4.10</span><b>🟪 Markdown 미리보기</b> <span class="sub"><code>source.html:575-577</code> · <code>744</code> · <code>801-803</code></span></label>
-<div class="ib">
+## 4.10 🟪 Markdown 미리보기 — source.html:575-577 · 744 · 801-803
 
-### <span class="n3">4.10.1</span>원인
+### 4.10.1원인
 
 - Monaco 의 AMD `loader.js`(`:575`)가 `marked.min.js`(`:577`)보다 먼저 로드된다. marked 의 UMD 래퍼는 `define.amd` 가 있으면 전역 대신 AMD 모듈로 등록하므로 `window.marked` 가 생기지 않는다. 그래서 `typeof marked !== 'undefined'`(`:801`)가 항상 거짓이고, .md 파일은 미리보기 대신 Monaco 에 Markdown 소스로 열린다. **성능 이전에 기능 버그다.**
 - 고치더라도 `switchTabIn` 이 Markdown 탭으로 돌아올 때마다 저장해 둔 HTML 문자열 전체를 `innerHTML` 로 다시 넣는다(`:744`). 스크롤 위치도 잃는다. `marked.parse` 는 메인 스레드에서 동기로 돈다(`:803`).
 
-### <span class="n3">4.10.2</span>근거
+### 4.10.2근거
 
 헤드리스·실제 WebView2 모두 `typeof marked` = `undefined`. 2 MB Markdown 이 15.8만 줄 Monaco 모델로 열려 힙이 54 ~ 87 MB 늘었다.
-
-</div>
-</div>
 
 ---
 
 <a id="cat-5"></a>
 
-# <span class="num">5</span> 개선안 <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+# 5 개선안 
 
 > 번호는 4장 병목 번호와 같다. 예상 효과는 이번 측정값을 기준으로 한 추정이며 적용 후 같은 스크립트로 다시 재야 한다.
 
@@ -677,21 +413,14 @@ Ctrl+B 한 번에 **9.0 ~ 10.1 s**. 그동안 서버 전체가 멈춘다(4.1).
 
 <a id="cat-6"></a>
 
-# <span class="num">6</span> 권장 적용 순서 <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+# 6 권장 적용 순서 
 
 > 효과 대비 위험이 낮은 것부터. 1단계와 2단계는 서버 파일만 고치므로 source.html 을 수정 중인 세션과 충돌하지 않는다.
 
-<div style="font-family:'Noto Sans KR',sans-serif">
-<div class="lay">
- <div class="cd" style="border-top-color:#1a4d8f"><b><span class="st">1</span> 서버 응답성</b><span class="k">개선안 1 · 2 · 6</span><span class="s">server.py · reado.py 만. 반나절. 검색 중 멈춤 해소, 반복 검색·Quick Open 첫 입력 단축</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#1a4d8f"><b><span class="st">2</span> 검색 엔진</b><span class="k">개선안 3 · 4</span><span class="s">rg 동봉 + 스트리밍, goto 를 rg 기반으로. 1 ~ 2일. 검색·정의로 이동 10초대 → 1초 미만</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#7c3aed"><b><span class="st">3</span> 프론트 정리</b><span class="k">개선안 10 · 8 · 7</span><span class="s">source.html 수정 세션과 조율해서. Markdown 버그부터. 언어 워커 끄기, 트리 위임·프래그먼트</span></div>
- <div class="ar">→</div>
- <div class="cd" style="border-top-color:#cf7700"><b><span class="st">4</span> 빌드·대용량</b><span class="k">개선안 5 · 9</span><span class="s">배포 방식(onedir) 결정 필요. 파일 전송 형식 변경은 서버·프론트 동시 수정</span></div>
-</div>
-</div>
+- **1 서버 응답성** — `개선안 1 · 2 · 6` — server.py · reado.py 만. 반나절. 검색 중 멈춤 해소, 반복 검색·Quick Open 첫 입력 단축
+- **2 검색 엔진** — `개선안 3 · 4` — rg 동봉 + 스트리밍, goto 를 rg 기반으로. 1 ~ 2일. 검색·정의로 이동 10초대 → 1초 미만
+- **3 프론트 정리** — `개선안 10 · 8 · 7` — source.html 수정 세션과 조율해서. Markdown 버그부터. 언어 워커 끄기, 트리 위임·프래그먼트
+- **4 빌드·대용량** — `개선안 5 · 9` — 배포 방식(onedir) 결정 필요. 파일 전송 형식 변경은 서버·프론트 동시 수정
 
 ### 단계별 메모
 
@@ -704,16 +433,11 @@ Ctrl+B 한 번에 **9.0 ~ 10.1 s**. 그동안 서버 전체가 멈춘다(4.1).
 
 <a id="cat-7"></a>
 
-# <span class="num">7</span> 2단계 A 적용 결과 — 서버 보안·성능 <span class="hctl"><a href="#toc">↑ 목차로</a></span>
+# 7 2단계 A 적용 결과 — 서버 보안·성능 
 
 > 2026-10-07 적용. 수정 파일은 `server.py`, `reado.py`, `fetch-vendor.py`, `build.bat`, `.gitignore` 다섯 개이고 `source.html` 은 한 줄도 고치지 않았다. 아래 수치는 같은 PC·같은 코퍼스(25,014 파일)에서 원본과 수정본을 연달아 잰 값이다.
 
-<div class="it">
-<input type="checkbox" id="i7-1a" class="ca" style="display:none">
-<input type="checkbox" id="i7-1b" class="cb" style="display:none">
-<label for="i7-1a" class="ih la"><span class="n">7.1</span><b>전/후 벤치마크</b> <span class="sub">중앙값 · 3 ~ 5회</span></label>
-<label for="i7-1b" class="ih lb"><span class="n">7.1</span><b>전/후 벤치마크</b> <span class="sub">중앙값 · 3 ~ 5회</span></label>
-<div class="ib">
+## 7.1 전/후 벤치마크 — 중앙값 · 3 ~ 5회
 
 <table>
 <thead><tr><th style="white-space:nowrap">영역</th><th style="white-space:nowrap">항목</th><th style="white-space:nowrap">전</th><th style="white-space:nowrap">후 (rg)</th><th style="white-space:nowrap">후 (Python 폴백)</th></tr></thead>
@@ -743,14 +467,7 @@ Ctrl+B 한 번에 **9.0 ~ 10.1 s**. 그동안 서버 전체가 멈춘다(4.1).
 - 이번 측정에서 원본의 콜드 검색은 13.6 s 였다(2장 측정 때는 32.6 s). 차이는 OS 파일 캐시 상태다.
 - Python 폴백 정규식(1,485 ms)이 원본(1,022 ms)보다 느린 것은 스레드를 32 → 8개로 줄였기 때문이다. 같은 실험에서 일치 없는 검색 속도는 같았고 검색 중 다른 요청의 대기는 4.7 s → 1.9 s 로 줄었다.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i7-2a" class="ca" style="display:none">
-<input type="checkbox" id="i7-2b" class="cb" style="display:none">
-<label for="i7-2a" class="ih la"><span class="n">7.2</span><b>변경 내용</b> <span class="sub">4장 병목 번호 기준</span></label>
-<label for="i7-2b" class="ih lb"><span class="n">7.2</span><b>변경 내용</b> <span class="sub">4장 병목 번호 기준</span></label>
-<div class="ib">
+## 7.2 변경 내용 — 4장 병목 번호 기준
 
 <table>
 <thead><tr><th style="white-space:nowrap">#</th><th style="white-space:nowrap">변경</th><th style="white-space:nowrap">위치</th></tr></thead>
@@ -766,18 +483,11 @@ Ctrl+B 한 번에 **9.0 ~ 10.1 s**. 그동안 서버 전체가 멈춘다(4.1).
 </tbody>
 </table>
 
-이번 단계에서 하지 않은 것: <span class="cn">5</span> onedir 전환(보류 지시), <span class="cn">8</span> 언어 워커·vendor 정리와 <span class="cn">10</span> Markdown(프론트 담당), <span class="cn">9</span> 의 원문 전송 형식 변경(프론트 동시 수정 필요). <code>reado.spec</code> 은 <code>build.bat</code> 이 매번 지우고 다시 만드는 생성 파일이고 <code>vendor</code> 전체를 이미 포함하므로 수정하지 않았다.
+이번 단계에서 하지 않은 것: 5 onedir 전환(보류 지시), 8 언어 워커·vendor 정리와 10 Markdown(프론트 담당), 9 의 원문 전송 형식 변경(프론트 동시 수정 필요). <code>reado.spec</code> 은 <code>build.bat</code> 이 매번 지우고 다시 만드는 생성 파일이고 <code>vendor</code> 전체를 이미 포함하므로 수정하지 않았다.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i7-3a" class="ca" style="display:none">
-<input type="checkbox" id="i7-3b" class="cb" style="display:none">
-<label for="i7-3a" class="ih la"><span class="n">7.3</span><b>쓰기 API 공통 가드 사용법</b> <span class="sub">에디터 담당용</span></label>
-<label for="i7-3b" class="ih lb"><span class="n">7.3</span><b>쓰기 API 공통 가드 사용법</b> <span class="sub">에디터 담당용</span></label>
-<div class="ib">
+## 7.3 쓰기 API 공통 가드 사용법 — 에디터 담당용
 
-### <span class="n3">7.3.1</span>서버 쪽
+### 7.3.1서버 쪽
 
 `@write_api` 로 등록하면 Host·Origin·토큰·Content-Type·본문 크기 검사와 JSON 파싱이 먼저 끝난 뒤 함수가 불린다. 경로는 반드시 `resolve_write_path` 를 거치고, 기록은 `atomic_write` 로 한다.
 
@@ -803,18 +513,11 @@ def api_save(data):
 </tbody>
 </table>
 
-### <span class="n3">7.3.2</span>프론트 쪽
+### 7.3.2프론트 쪽
 
 할 일이 없다. 서버가 `source.html` 을 내보낼 때 `</head>` 앞에 토큰 `<meta name="reado-token">` 과 `window.READO_TOKEN`, 그리고 같은 출처의 GET/HEAD 가 아닌 `fetch()` 에 `X-ReadO-Token` 헤더를 붙이는 래퍼를 끼워 넣는다. 평소처럼 `fetch('/api/save', {method:'POST', headers:{'Content-Type':'application/json'}, body})` 로 부르면 된다. `XMLHttpRequest` 나 폼 전송을 쓰면 헤더를 직접 붙여야 한다. 응답의 `mtime_ns` 를 보관했다가 다음 저장 때 돌려보내면 외부 변경 충돌을 막을 수 있다.
 
-</div>
-</div>
-<div class="it">
-<input type="checkbox" id="i7-4a" class="ca" style="display:none">
-<input type="checkbox" id="i7-4b" class="cb" style="display:none">
-<label for="i7-4a" class="ih la"><span class="n">7.4</span><b>검증</b> <span class="sub">서버 83항목 · 브라우저 15항목 · 실제 WebView2 · 테스트 빌드 exe</span></label>
-<label for="i7-4b" class="ih lb"><span class="n">7.4</span><b>검증</b> <span class="sub">서버 83항목 · 브라우저 15항목 · 실제 WebView2 · 테스트 빌드 exe</span></label>
-<div class="ib">
+## 7.4 검증 — 서버 83항목 · 브라우저 15항목 · 실제 WebView2 · 테스트 빌드 exe
 
 <table>
 <thead><tr><th style="white-space:nowrap">스크립트</th><th style="white-space:nowrap">확인 내용</th><th style="white-space:nowrap">결과</th></tr></thead>
@@ -826,21 +529,17 @@ def api_save(data):
 </tbody>
 </table>
 
-### <span class="n3">7.4.1</span>검증 중 발견한 기존 문제 (수정하지 않음)
+### 7.4.1검증 중 발견한 기존 문제 (수정하지 않음)
 
 - **정의로 이동 후 커서가 1행으로 간다** — `gotoInEditor`(`source.html:1015-1030`)가 `findMatches` 를 대소문자 무시로 불러 `package …svc01000;` 같은 소문자 일치까지 선택하고, 그 첫 선택이 주 커서가 된다. 서버 응답은 원본과 같다(선언 3행). 프론트 담당에게 전달할 항목이다.
 - rg 가 확장자 없는 파일(Dockerfile 등)은 검색하지 않는다. 확장자 glob 으로 거르기 때문이며, rg 가 PATH 에 있던 PC 에서는 원래 그랬다.
-
-</div>
-</div>
-
 
 <hr style="margin:4.5em 0 2em">
 
 <a id="appendix"></a>
 
 <details>
-<summary class="apx"><span class="num">A</span> 부록: 원시 로그 · 스크립트 · 부수 발견 <span class="hctl"><a href="#toc">↑ 목차로</a></span></summary>
+<summary class="apx">A 부록: 원시 로그 · 스크립트 · 부수 발견 </summary>
 
 ## A.1 원시 측정 로그 (발췌)
 

@@ -37,7 +37,7 @@ flowchart LR
 | macOS，Apple 芯片（M1 及以后） | `ReadO-mac-arm64.dmg` |
 | macOS，Intel | `ReadO-mac-x86_64.dmg` |
 
-> 这些构建没有代码签名。**Windows：** 首次运行时 SmartScreen 可能会警告，请选择*更多信息 → 仍要运行*。**macOS：** 打开 dmg，把 ReadO 拖到 Applications，首次请右键 → *打开*。如果提示“已损坏”，请运行 `xattr -dr com.apple.quarantine /Applications/ReadO.app`。
+> 这些构建没有代码签名。**Windows：** 首次运行时 SmartScreen 可能会警告，请选择*更多信息 → 仍要运行*。也可以右键文件 → 属性 → 勾选**解除锁定**（PowerShell：`Unblock-File <文件>`）。**macOS：** 打开 dmg，把 ReadO 拖到 Applications，首次请右键 → *打开*。如果提示“已损坏”，请运行 `xattr -dr com.apple.quarantine /Applications/ReadO.app`。
 >
 > macOS 说明：只有安装了 Universal Ctags（`brew install universal-ctags`）才会使用符号索引，否则跳转定义会退回到搜索。“打开方式”注册仅限 Windows。
 

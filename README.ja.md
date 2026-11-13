@@ -37,7 +37,7 @@ flowchart LR
 | macOS（Apple シリコン、M1 以降） | `ReadO-mac-arm64.dmg` |
 | macOS（Intel） | `ReadO-mac-x86_64.dmg` |
 
-> コード署名のないビルドです。**Windows:** 初回起動時に SmartScreen の警告が出ることがあります。*詳細情報 → 実行*を選んでください。**macOS:** dmg を開いて ReadO を Applications にドラッグし、初回は右クリック → *開く*を選びます。「壊れている」と表示された場合は `xattr -dr com.apple.quarantine /Applications/ReadO.app` を実行してください。
+> コード署名のないビルドです。**Windows:** 初回起動時に SmartScreen の警告が出ることがあります。*詳細情報 → 実行*を選んでください。または、ファイルを右クリック → プロパティ → **ブロックの解除**にチェックを入れます（PowerShell: `Unblock-File <ファイル>`）。**macOS:** dmg を開いて ReadO を Applications にドラッグし、初回は右クリック → *開く*を選びます。「壊れている」と表示された場合は `xattr -dr com.apple.quarantine /Applications/ReadO.app` を実行してください。
 >
 > macOS の注意: シンボルインデックスは Universal Ctags がインストールされている場合のみ使われ（`brew install universal-ctags`）、無ければ定義へ移動は検索で代替されます。「プログラムから開く」登録は Windows 専用です。
 

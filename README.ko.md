@@ -37,7 +37,7 @@ flowchart LR
 | macOS, Apple Silicon (M1 이상) | `ReadO-mac-arm64.dmg` |
 | macOS, Intel | `ReadO-mac-x86_64.dmg` |
 
-> 코드 서명이 없는 빌드입니다. **Windows:** 처음 실행할 때 SmartScreen 경고가 뜰 수 있습니다. *추가 정보 → 실행*을 누르세요. **macOS:** dmg 를 열어 ReadO 를 Applications 로 끌어 놓고, 처음에는 우클릭 → *열기*를 선택하세요. "손상되었다"고 나오면 `xattr -dr com.apple.quarantine /Applications/ReadO.app` 을 실행합니다.
+> 코드 서명이 없는 빌드입니다. **Windows:** 처음 실행할 때 SmartScreen 경고가 뜰 수 있습니다. *추가 정보 → 실행*을 누르세요. 또는 파일 우클릭 → 속성 → **차단 해제**를 체크하세요(PowerShell: `Unblock-File <파일>`). **macOS:** dmg 를 열어 ReadO 를 Applications 로 끌어 놓고, 처음에는 우클릭 → *열기*를 선택하세요. "손상되었다"고 나오면 `xattr -dr com.apple.quarantine /Applications/ReadO.app` 을 실행합니다.
 >
 > macOS 참고: 심볼 인덱스는 Universal Ctags 가 설치된 경우에만 쓰이고(`brew install universal-ctags`), 없으면 정의 이동이 검색으로 대체됩니다. "연결 프로그램" 등록은 Windows 전용입니다.
 

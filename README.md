@@ -37,7 +37,7 @@ Get the file for your system from the [Releases](../../releases) page. No Python
 | macOS, Apple Silicon (M1 and later) | `ReadO-mac-arm64.dmg` |
 | macOS, Intel | `ReadO-mac-x86_64.dmg` |
 
-> The builds are not code-signed. **Windows:** SmartScreen may warn on first start: choose *More info → Run anyway*. **macOS:** open the dmg, drag ReadO to Applications, then right-click it → *Open* the first time. If macOS says the app is damaged, run `xattr -dr com.apple.quarantine /Applications/ReadO.app`.
+> The builds are not code-signed. **Windows:** SmartScreen may warn on first start: choose *More info → Run anyway*. Or right-click the file → Properties → tick **Unblock** (PowerShell: `Unblock-File <file>`). **macOS:** open the dmg, drag ReadO to Applications, then right-click it → *Open* the first time. If macOS says the app is damaged, run `xattr -dr com.apple.quarantine /Applications/ReadO.app`.
 >
 > macOS notes: the symbol index uses Universal Ctags only if it is installed (`brew install universal-ctags`); otherwise go to definition falls back to search. The "Open with" registration is Windows-only.
 

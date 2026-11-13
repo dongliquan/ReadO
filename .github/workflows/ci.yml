@@ -1,0 +1,32 @@
+# Checks on every push and pull request: Python and JavaScript syntax, then the headless git API tests
+# (fixture repositories in a temp folder; no network, no secrets).
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bash .github/ci-step.sh "pip install" pip install -r requirements.txt
+        shell: bash
+      - run: bash .github/ci-step.sh "python syntax" python -m compileall -q reado.py server.py gitview.py srv_fileops.py srv_goto.py srv_links.py srv_search.py srv_tags.py startguard.py nowmi.py tests scripts
+        shell: bash
+      - run: bash .github/ci-step.sh "javascript syntax" bash -c 'for f in git.js diffwin.js ui/*.js; do node --check "$f" || exit 1; done'
+        shell: bash
+      - run: bash .github/ci-step.sh "git api tests" python tests/test_git.py
+        shell: bash

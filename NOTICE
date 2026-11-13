@@ -20,3 +20,9 @@ works, so neither its code nor its assets are in ReadO. GPL-licensed git tools
 (gitk, tig, git-cola, Git Extensions) were looked at for UI ideas only.
 
 The git program itself is not bundled; ReadO runs the git installed on the PC.
+
+Bundled programs (downloaded by fetch-vendor.py, shipped inside reado.exe, each with its license file under vendor/):
+
+* ripgrep — MIT / Unlicense. https://github.com/BurntSushi/ripgrep
+* Universal Ctags — GPL-2.0, run as a separate program (not linked). Source: https://github.com/universal-ctags/ctags
+* Monaco Editor, marked — MIT. Pretendard, D2Coding — SIL Open Font License.

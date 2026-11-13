@@ -1,0 +1,2 @@
+# CI shell scripts must stay LF even on a Windows checkout
+*.sh text eol=lf

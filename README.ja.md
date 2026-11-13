@@ -2,7 +2,7 @@
 
 # ReadO
 
-**Windows 向けの軽量なソースビューア兼エディタ。** コードを読む・移動する・すぐ直すための VS Code / IntelliJ の要点だけを搭載しました。フォルダーを開き、クラスや関数へジャンプし、テキストファイルをその場で編集できます。IDE のインストールもプロジェクト設定も不要で、完全にオフラインで動作します。
+**Windows / macOS 向けの軽量なソースビューア兼エディタ。** コードを読む・移動する・すぐ直すための VS Code / IntelliJ の要点だけを搭載しました。フォルダーを開き、クラスや関数へジャンプし、テキストファイルをその場で編集できます。IDE のインストールもプロジェクト設定も不要で、完全にオフラインで動作します。
 
 ## 機能
 
@@ -20,7 +20,7 @@
 
 ```mermaid
 flowchart LR
-  W["ネイティブウィンドウ<br/>(pywebview · WebView2)"] <-->|HTTP| S["ローカルサーバー<br/>127.0.0.1:8766"]
+  W["ネイティブウィンドウ<br/>(pywebview · WebView2 / WebKit)"] <-->|HTTP| S["ローカルサーバー<br/>127.0.0.1:8766"]
   S --> F[("あなたのフォルダー")]
   S --> R["ripgrep<br/>内容検索"]
   S --> C["Universal Ctags<br/>定義へ移動 · Ctrl+T"]
@@ -29,13 +29,21 @@ flowchart LR
 
 ## ダウンロード
 
-[Releases](../../releases) ページから `reado.exe` を入手してください。単一ファイルで Python は不要です。
+[Releases](../../releases) ページからお使いの環境のファイルを入手してください。Python は不要です。
 
-> コード署名のないビルドのため、初回起動時に Windows SmartScreen の警告が出ることがあります。*詳細情報 → 実行*を選んでください。
+| 環境 | ファイル |
+|---|---|
+| Windows 10/11 | `reado.exe`（単一ファイル） |
+| macOS（Apple シリコン、M1 以降） | `ReadO-mac-arm64.dmg` |
+| macOS（Intel） | `ReadO-mac-x86_64.dmg` |
+
+> コード署名のないビルドです。**Windows:** 初回起動時に SmartScreen の警告が出ることがあります。*詳細情報 → 実行*を選んでください。**macOS:** dmg を開いて ReadO を Applications にドラッグし、初回は右クリック → *開く*を選びます。「壊れている」と表示された場合は `xattr -dr com.apple.quarantine /Applications/ReadO.app` を実行してください。
+>
+> macOS の注意: シンボルインデックスは Universal Ctags がインストールされている場合のみ使われ（`brew install universal-ctags`）、無ければ定義へ移動は検索で代替されます。「プログラムから開く」登録は Windows 専用です。
 
 ## ソースから実行
 
-Windows と Python 3.10 以上が必要です。
+Windows または macOS と Python 3.10 以上が必要です。
 
 ```bash
 pip install -r requirements.txt

@@ -48,6 +48,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -102,6 +103,10 @@ def _find_git():
                 f = os.path.join(root, sub)
                 if os.path.isfile(f):
                     return f
+    if sys.platform == "darwin":  # a Finder-launched app has a bare PATH
+        for f in ("/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"):
+            if os.path.isfile(f):
+                return f
     return None
 
 
@@ -1361,6 +1366,11 @@ def _running_exe(name):
 
 
 def agento_path(user_path=""):
+    if sys.platform == "darwin":
+        for c in ([user_path] if user_path.endswith(".app") else []) + ["/Applications/AgentO.app", os.path.expanduser("~/Applications/AgentO.app")]:
+            if c and os.path.isdir(c):
+                return c
+        return None
     cands = []
     if user_path and os.path.basename(user_path).lower() == "agento.exe":
         cands.append(user_path)
@@ -1386,6 +1396,9 @@ def api_agento(data):
     if data.get("probe"):
         return {"launched": False, "path": exe}
     try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", exe], close_fds=True)
+            return {"launched": True, "path": exe}
         subprocess.Popen([exe], cwd=os.path.dirname(exe), close_fds=True,
                          creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
     except OSError as e:
@@ -1400,6 +1413,9 @@ def api_terminal(data):
         return 400, {"error": e.code}
     wt = shutil.which("wt")
     try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-a", "Terminal", top], close_fds=True)
+            return {"ok": True, "terminal": "Terminal"}
         if wt:
             subprocess.Popen([wt, "-d", top], close_fds=True)
         else:
@@ -1684,6 +1700,8 @@ def requests_dir():
 
 def agento_handler():
     """The registered agento: protocol's open command, or None (HKCR\\agento with "URL Protocol")."""
+    if sys.platform == "darwin":
+        return "open" if agento_path() else None
     try:
         import winreg
     except ImportError:
@@ -1699,6 +1717,9 @@ def agento_handler():
 
 
 def _startfile(url):  # replaced in tests
+    if sys.platform == "darwin":
+        subprocess.run(["open", url], check=False, timeout=15)
+        return
     os.startfile(url)
 
 

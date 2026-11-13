@@ -2,7 +2,7 @@
 
 # ReadO
 
-**Windows용 가벼운 소스 뷰어·에디터.** 코드를 읽고, 이동하고, 바로 고치는 VS Code / IntelliJ의 핵심만 담았습니다. 폴더를 열고 클래스·함수로 점프하고 텍스트 파일을 그 자리에서 수정합니다. IDE 설치도 프로젝트 설정도 필요 없고 완전히 오프라인으로 동작합니다.
+**Windows·macOS용 가벼운 소스 뷰어·에디터.** 코드를 읽고, 이동하고, 바로 고치는 VS Code / IntelliJ의 핵심만 담았습니다. 폴더를 열고 클래스·함수로 점프하고 텍스트 파일을 그 자리에서 수정합니다. IDE 설치도 프로젝트 설정도 필요 없고 완전히 오프라인으로 동작합니다.
 
 ## 기능
 
@@ -20,7 +20,7 @@
 
 ```mermaid
 flowchart LR
-  W["네이티브 창<br/>(pywebview · WebView2)"] <-->|HTTP| S["로컬 서버<br/>127.0.0.1:8766"]
+  W["네이티브 창<br/>(pywebview · WebView2 / WebKit)"] <-->|HTTP| S["로컬 서버<br/>127.0.0.1:8766"]
   S --> F[("내 폴더")]
   S --> R["ripgrep<br/>파일 내용 검색"]
   S --> C["Universal Ctags<br/>정의 이동 · Ctrl+T"]
@@ -29,13 +29,21 @@ flowchart LR
 
 ## 다운로드
 
-[Releases](../../releases) 페이지에서 `reado.exe` 를 받으세요. 파일 하나이며 Python 이 필요 없습니다.
+[Releases](../../releases) 페이지에서 사용하는 시스템에 맞는 파일을 받으세요. Python 이 필요 없습니다.
 
-> 코드 서명이 없는 빌드라 처음 실행할 때 Windows SmartScreen 경고가 뜰 수 있습니다. *추가 정보 → 실행*을 누르세요.
+| 시스템 | 파일 |
+|---|---|
+| Windows 10/11 | `reado.exe` (파일 하나) |
+| macOS, Apple Silicon (M1 이상) | `ReadO-mac-arm64.dmg` |
+| macOS, Intel | `ReadO-mac-x86_64.dmg` |
+
+> 코드 서명이 없는 빌드입니다. **Windows:** 처음 실행할 때 SmartScreen 경고가 뜰 수 있습니다. *추가 정보 → 실행*을 누르세요. **macOS:** dmg 를 열어 ReadO 를 Applications 로 끌어 놓고, 처음에는 우클릭 → *열기*를 선택하세요. "손상되었다"고 나오면 `xattr -dr com.apple.quarantine /Applications/ReadO.app` 을 실행합니다.
+>
+> macOS 참고: 심볼 인덱스는 Universal Ctags 가 설치된 경우에만 쓰이고(`brew install universal-ctags`), 없으면 정의 이동이 검색으로 대체됩니다. "연결 프로그램" 등록은 Windows 전용입니다.
 
 ## 소스에서 실행
 
-Windows 와 Python 3.10 이상이 필요합니다.
+Windows 또는 macOS 와 Python 3.10 이상이 필요합니다.
 
 ```bash
 pip install -r requirements.txt

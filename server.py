@@ -1407,7 +1407,15 @@ def api_create(data):
 
 # ----- replace in files, rename / delete / new folder -> srv_fileops.py -----
 def _recycle(full):
-    """Move to the Windows Recycle Bin (SHFileOperation, FOF_ALLOWUNDO). True on success."""
+    """Move to the Recycle Bin (Windows: SHFileOperation, FOF_ALLOWUNDO) / the Trash (macOS: Finder). True on success."""
+    if sys.platform == "darwin":
+        try:  # Finder keeps "Put Back" working; the path travels as an argument, never inside the script text
+            r = subprocess.run(["osascript", "-e", "on run argv", "-e", 'tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)',
+                                "-e", "end run", os.path.abspath(full)],
+                               capture_output=True, timeout=30, stdin=subprocess.DEVNULL)
+            return r.returncode == 0 and not os.path.lexists(full)
+        except (OSError, subprocess.SubprocessError):
+            return False
     if os.name != "nt":
         return False
     import ctypes

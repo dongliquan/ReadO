@@ -484,7 +484,7 @@ function tabMenu(e, paneIdx, key) {
     { label: 'copy path', run: () => copyText(fullPathOf(key)) },
     { label: 'copy relative path', disabled: isAbsKey(key), run: () => copyText(key, 'relative path') },
     { label: 'reveal in tree', disabled: isAbsKey(key), run: () => { setSideTab('files'); revealInTree(key).then(() => treeSelect(key)); } },
-    { label: 'reveal in Explorer', disabled: !isDesktop(), run: () => revealInExplorer(key) },
+    { label: 'reveal in ' + FILE_MGR, disabled: !isDesktop(), run: () => revealInExplorer(key) },
     { label: 'compare with saved', run: () => { switchTabIn(paneIdx, key); compareWithSaved(); } });
   showMenu(e.clientX, e.clientY, items);
 }

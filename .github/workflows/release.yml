@@ -1,4 +1,5 @@
-# Pushing a tag like v0.1.0 builds reado.exe and attaches it to a DRAFT release; review it, then press Publish.
+# Pushing a tag like v0.1.0 builds reado.exe (Windows) and ReadO-mac-<arch>.dmg (macOS, Apple Silicon and Intel)
+# and attaches them to a DRAFT release; review it, then press Publish.
 name: release
 
 on:
@@ -10,7 +11,14 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: windows }
+          - { os: macos-latest, name: mac-arm64 }
+          - { os: macos-15-intel, name: mac-x86_64 }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,12 +29,18 @@ jobs:
         shell: bash
       - run: bash .github/ci-step.sh "fetch vendor assets" python fetch-vendor.py
         shell: bash
-      - run: bash .github/ci-step.sh "build reado.exe" cmd //c build.bat
+      - if: runner.os == 'Windows'
+        run: bash .github/ci-step.sh "build reado.exe" cmd //c build.bat
+        shell: bash
+      - if: runner.os == 'macOS'
+        run: bash .github/ci-step.sh "build ReadO.app and dmg" bash build_mac.sh
         shell: bash
       - uses: actions/upload-artifact@v4
         with:
-          name: reado-windows
-          path: dist/reado.exe
+          name: reado-${{ matrix.name }}
+          path: |
+            dist/reado.exe
+            dist/ReadO-mac-*.dmg
           if-no-files-found: error
 
   release:

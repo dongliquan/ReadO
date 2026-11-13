@@ -82,13 +82,13 @@ async function deleteEntry(t) {
   const affected = docsUnder(t.path, t.dir);
   const dirty = affected.filter(d => d.dirty).length;
   const what = t.dir ? `the folder ${t.path} and everything in it` : t.path;
-  const c = await askChoice('delete', `Move ${what} to the Recycle Bin?`
+  const c = await askChoice('delete', `Move ${what} to the ${TRASH}?`
     + (dirty ? `\n${dirty} open file(s) with unsaved changes will be closed and the changes lost.` : ''),
-    [{ label: 'move to Recycle Bin', value: 'ok', primary: true }, { label: 'cancel', value: 'cancel' }]);
+    [{ label: 'move to ' + TRASH, value: 'ok', primary: true }, { label: 'cancel', value: 'cancel' }]);
   if (c !== 'ok') return;
   let r = await postJson('/api/delete', { path: t.path });
   if (!r.ok && r.data.code === 'no_recycle') {
-    const c2 = await askChoice('delete', `${t.path} cannot go to the Recycle Bin. Delete it permanently? This cannot be undone.`,
+    const c2 = await askChoice('delete', `${t.path} cannot go to the ${TRASH}. Delete it permanently? This cannot be undone.`,
       [{ label: 'cancel', value: 'cancel', primary: true }, { label: 'delete permanently', value: 'ok' }]);
     if (c2 !== 'ok') return;
     r = await postJson('/api/delete', { path: t.path, permanent: true });
@@ -101,7 +101,7 @@ async function deleteEntry(t) {
   _treeSkip.add(parent);
   await refreshTreeDir(parent).catch(() => {});
   _treeSel = null;
-  showToast(r.data.recycled ? `moved to the Recycle Bin: ${t.path}` : `deleted: ${t.path}`);
+  showToast(r.data.recycled ? `moved to the ${TRASH}: ${t.path}` : `deleted: ${t.path}`);
 }
 async function newFolderDialog(dir) {
   if (dir === undefined) { const t = fileTarget(); dir = t ? (t.dir ? t.path : parentOf(t.path)) : ''; }
@@ -128,7 +128,7 @@ async function copyText(text, what) {
 const fullPathOf = key => isAbsKey(key) ? key : ((_settings.base_dir || '').replace(/[\\/]+$/, '') + '\\' + key.replace(/\//g, '\\'));
 function revealInExplorer(key) {
   const api = window.pywebview && window.pywebview.api;
-  if (!api || !api.reveal) return showToast('"reveal in Explorer" needs the desktop app', true);
+  if (!api || !api.reveal) return showToast('"reveal in ' + FILE_MGR + '" needs the desktop app', true);
   api.reveal(key || '');
 }
 function collapseAll() {
@@ -151,7 +151,7 @@ function treeMenu(e, path, dir) {
     'sep',
     { label: 'copy path', run: () => copyText(fullPathOf(path)) },
     { label: 'copy relative path', run: () => copyText(path, 'relative path') },
-    { label: 'reveal in Explorer', disabled: !isDesktop(), run: () => revealInExplorer(path) },
+    { label: 'reveal in ' + FILE_MGR, disabled: !isDesktop(), run: () => revealInExplorer(path) },
     'sep',
     { label: 'collapse all', run: () => collapseAll() },
   ]);

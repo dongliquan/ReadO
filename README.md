@@ -2,7 +2,7 @@
 
 # ReadO
 
-**A lightweight desktop source viewer and editor for Windows.** The essentials of VS Code / IntelliJ for reading, navigating and quickly editing code: open any folder, jump to classes and functions, edit text files in place. No IDE install, no project setup, works fully offline.
+**A lightweight desktop source viewer and editor for Windows and macOS.** The essentials of VS Code / IntelliJ for reading, navigating and quickly editing code: open any folder, jump to classes and functions, edit text files in place. No IDE install, no project setup, works fully offline.
 
 ## Features
 
@@ -20,7 +20,7 @@
 
 ```mermaid
 flowchart LR
-  W["Native window<br/>(pywebview · WebView2)"] <-->|HTTP| S["Local server<br/>127.0.0.1:8766"]
+  W["Native window<br/>(pywebview · WebView2 / WebKit)"] <-->|HTTP| S["Local server<br/>127.0.0.1:8766"]
   S --> F[("Your folders")]
   S --> R["ripgrep<br/>Find in Files"]
   S --> C["Universal Ctags<br/>Go to definition · Ctrl+T"]
@@ -29,13 +29,21 @@ flowchart LR
 
 ## Download
 
-Get `reado.exe` from the [Releases](../../releases) page. It is one file; no Python needed.
+Get the file for your system from the [Releases](../../releases) page. No Python needed.
 
-> The build is not code-signed. On first start Windows SmartScreen may warn: choose *More info → Run anyway*.
+| System | File |
+|---|---|
+| Windows 10/11 | `reado.exe` (one file) |
+| macOS, Apple Silicon (M1 and later) | `ReadO-mac-arm64.dmg` |
+| macOS, Intel | `ReadO-mac-x86_64.dmg` |
+
+> The builds are not code-signed. **Windows:** SmartScreen may warn on first start: choose *More info → Run anyway*. **macOS:** open the dmg, drag ReadO to Applications, then right-click it → *Open* the first time. If macOS says the app is damaged, run `xattr -dr com.apple.quarantine /Applications/ReadO.app`.
+>
+> macOS notes: the symbol index uses Universal Ctags only if it is installed (`brew install universal-ctags`); otherwise go to definition falls back to search. The "Open with" registration is Windows-only.
 
 ## Run from source
 
-Requires Windows and Python 3.10+.
+Requires Windows or macOS and Python 3.10+.
 
 ```bash
 pip install -r requirements.txt

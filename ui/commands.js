@@ -18,7 +18,7 @@ const COMMANDS = [
   { id: 'file.delete', cat: 'File', title: 'Delete', keys: 'Delete', bind: ['Delete'], when: () => treeHasFocus(), run: () => deleteEntry() },
   { id: 'file.copyPath', cat: 'File', title: 'Copy Path', run: () => { const t = fileTarget(); if (t) copyText(fullPathOf(t.path)); } },
   { id: 'file.copyRelPath', cat: 'File', title: 'Copy Relative Path', run: () => { const t = fileTarget(); if (t) copyText(t.path, 'relative path'); } },
-  { id: 'file.reveal', cat: 'File', title: 'Reveal in Explorer', desktop: true, run: () => { const t = fileTarget(); revealInExplorer(t ? t.path : currentPath); } },
+  { id: 'file.reveal', cat: 'File', title: 'Reveal in ' + FILE_MGR, desktop: true, run: () => { const t = fileTarget(); revealInExplorer(t ? t.path : currentPath); } },
   { id: 'file.reopenEncoding', cat: 'File', title: 'Reopen with Encoding…', run: () => reopenWithEncoding(), enabled: () => !!currentDoc() },
   { id: 'file.compareSaved', cat: 'File', title: 'Compare with Saved', run: () => compareWithSaved(), enabled: () => !!currentDoc() },
   { id: 'file.compareHead', cat: 'File', title: 'Compare with Git HEAD', run: () => compareWithHead(), enabled: () => !!currentDoc() },

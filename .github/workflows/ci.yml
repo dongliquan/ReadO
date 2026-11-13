@@ -1,5 +1,5 @@
-# Checks on every push and pull request: Python and JavaScript syntax, then the headless git API tests
-# (fixture repositories in a temp folder; no network, no secrets).
+# Checks on every push and pull request: Python and JavaScript syntax, the headless git API tests (fixture
+# repositories in a temp folder; no network, no secrets), and on macOS also the .app / .dmg build.
 name: ci
 
 on:
@@ -12,7 +12,11 @@ permissions:
 
 jobs:
   check:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,4 +33,7 @@ jobs:
       - run: bash .github/ci-step.sh "javascript syntax" bash -c 'for f in git.js diffwin.js ui/*.js; do node --check "$f" || exit 1; done'
         shell: bash
       - run: bash .github/ci-step.sh "git api tests" python tests/test_git.py
+        shell: bash
+      - if: runner.os == 'macOS'
+        run: bash .github/ci-step.sh "build ReadO.app" bash build_mac.sh
         shell: bash

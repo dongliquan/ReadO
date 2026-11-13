@@ -1,3 +1,8 @@
+// the file manager and the bin, by OS (Finder / Trash on macOS)
+const IS_MAC = /Mac/i.test(navigator.platform || '');
+const FILE_MGR = IS_MAC ? 'Finder' : 'Explorer';
+const TRASH = IS_MAC ? 'Trash' : 'Recycle Bin';
+
 let _settings = {};
 
 // === Saved UI state ===

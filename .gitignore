@@ -43,3 +43,8 @@ icon-preview.png
 # Logs
 logs/
 *.log
+
+# macOS build
+build-icon/
+*.dmg
+vendor/rg/rg

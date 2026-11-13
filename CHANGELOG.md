@@ -17,6 +17,7 @@ All notable changes to ReadO. Versions follow [semantic versioning](https://semv
 
 ## Unreleased
 
+- macOS: ReadO runs on macOS (WebKit window, `build_mac.sh` builds `ReadO.app` and a dmg for Apple Silicon and Intel). Differences: the native title bar, Finder / Trash wording, ripgrep bundled but Universal Ctags only when installed, no "Open with" registration. Not yet run on a real Mac.
 - Find File (`Ctrl+P`): files named exactly like what you typed (any case) come first — `items.vue` lists every
   `Items.vue` / `items.vue` before `ItemsSidebar.vue` and other loose matches from the recent files. The order is:
   exact names you opened before, other exact names, other recent files, the rest. A query with a path (`/`) keeps

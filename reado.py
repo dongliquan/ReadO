@@ -1,6 +1,6 @@
 """
 ReadO — desktop launcher.
-Starts the local HTTP server in a thread and opens a native WebView2 window.
+Starts the local HTTP server in a thread and opens a native window (WebView2 on Windows, WebKit on macOS).
 """
 import nowmi  # noqa: F401  first: no WMI queries in this process (see nowmi.py)
 import json
@@ -23,6 +23,10 @@ if __name__ == "__main__":
     WATCHDOG.start()
     WATCHDOG.stage = "imports"
 
+IS_MAC = sys.platform == "darwin"
+if IS_MAC:  # an app started from Finder gets a bare PATH: add where Homebrew keeps git / ripgrep / ctags
+    os.environ["PATH"] = os.pathsep.join([os.environ.get("PATH", ""), "/opt/homebrew/bin", "/usr/local/bin"])
+
 import webview  # noqa: E402
 
 
@@ -40,8 +44,11 @@ def writable_root():
     Running from source keeps using the repo dir (it is gitignored).
     """
     if getattr(sys, "frozen", False):
-        base = os.path.join(os.environ.get("APPDATA")
-                            or os.path.expanduser("~"), "ReadO")
+        if IS_MAC:
+            base = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "ReadO")
+        else:
+            base = os.path.join(os.environ.get("APPDATA")
+                                or os.path.expanduser("~"), "ReadO")
         os.makedirs(base, exist_ok=True)
         return base
     return os.path.dirname(os.path.abspath(__file__))
@@ -239,11 +246,16 @@ class Api:
         return unregister_assoc()
 
     def reveal(self, key):
-        """Show a file or folder of the working folder (or an opened outside file) in Explorer."""
+        """Show a file or folder of the working folder (or an opened outside file) in Explorer / Finder."""
         full = server.resolve_read_path(str(key or "")) if key else server.base_root()
-        if not full or not os.path.exists(full) or os.name != "nt":
+        if not full or not os.path.exists(full):
             return False
         import subprocess
+        if IS_MAC:
+            subprocess.Popen(["open", "-R", full])
+            return True
+        if os.name != "nt":
+            return False
         subprocess.Popen(["explorer", "/select," + os.path.normpath(full)])
         return True
 
@@ -628,7 +640,18 @@ def on_shown(win):
 def on_closing():
     """Ask before quitting with unsaved tabs. Runs on the GUI thread, where a
     plain Win32 message box is safe (evaluate_js here would deadlock)."""
-    if Api.dirty <= 0 or os.name != "nt":
+    if Api.dirty <= 0:
+        return True
+    if IS_MAC:
+        import subprocess
+        script = (f'display dialog "{int(Api.dirty)} file(s) have unsaved changes.\\nQuit without saving?" '
+                  'with title "ReadO" buttons {"Cancel", "Quit"} default button "Cancel" with icon caution')
+        try:
+            r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=600)
+            return r.returncode == 0 and "Quit" in r.stdout  # Cancel makes osascript fail / report the other button
+        except Exception:
+            return True
+    if os.name != "nt":
         return True
     import ctypes
     MB_OKCANCEL, MB_ICONWARNING, IDOK = 0x1, 0x30, 1
@@ -675,6 +698,10 @@ def raise_window(win):
             ctypes.windll.user32.SetForegroundWindow(h)
         else:
             win.restore()
+            if IS_MAC:
+                win.show()
+                from AppKit import NSApplication  # pyobjc comes with pywebview on macOS
+                NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
     except Exception:
         pass
 

@@ -15,6 +15,7 @@ Stdlib only - no pip install needed.
 """
 import io
 import os
+import platform
 import shutil
 import sys
 import hashlib
@@ -44,6 +45,15 @@ CTAGS_ZIP = (
     "https://github.com/universal-ctags/ctags-win32/releases/download/"
     f"{CTAGS_VERSION}/ctags-{CTAGS_VERSION}-x64.zip"
 )
+
+# macOS: ripgrep tarballs per CPU (same release). Universal Ctags publishes no macOS binary, so it is not bundled
+# there: ReadO uses a ctags on PATH (brew install universal-ctags) and otherwise the regex fallback.
+MAC = sys.platform == "darwin"
+RIPGREP_MAC = {
+    "arm64": ("aarch64", "24ad76777745fbff131c8fbc466742b011f925bfa4fffa2ded6def23b5b937be"),
+    "x86_64": ("x86_64", "fc87e78f7cb3fea12d69072e7ef3b21509754717b746368fd40d88963630e2b3"),
+}
+RG_NAME = "rg" if sys.platform != "win32" else "rg.exe"
 
 NPM = "https://registry.npmjs.org"
 JSD = "https://cdn.jsdelivr.net/gh"
@@ -104,6 +114,8 @@ def extract_from_tgz(blob, members_prefix, dest):
 def fetch_ripgrep():
     """vendor/rg/rg.exe (+ license files). Verified against RIPGREP_SHA256."""
     print(f"== ripgrep {RIPGREP_VERSION} ==")
+    if MAC:
+        return fetch_ripgrep_mac()
     blob = get(RIPGREP_ZIP)
     digest = hashlib.sha256(blob).hexdigest()
     if digest != RIPGREP_SHA256:
@@ -119,8 +131,30 @@ def fetch_ripgrep():
     print("  -> rg/rg.exe")
 
 
+def fetch_ripgrep_mac():
+    cpu, want = RIPGREP_MAC[platform.machine()]
+    blob = get("https://github.com/BurntSushi/ripgrep/releases/download/"
+               f"{RIPGREP_VERSION}/ripgrep-{RIPGREP_VERSION}-{cpu}-apple-darwin.tar.gz")
+    digest = hashlib.sha256(blob).hexdigest()
+    if digest != want:
+        raise RuntimeError(f"ripgrep checksum mismatch: {digest}")
+    dest = os.path.join(VENDOR, "rg")
+    os.makedirs(dest, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tf:
+        for m in tf.getmembers():
+            name = m.name.rsplit("/", 1)[-1]
+            if m.isfile() and name in ("rg", "COPYING", "LICENSE-MIT", "UNLICENSE"):
+                with tf.extractfile(m) as src, open(os.path.join(dest, name), "wb") as f:
+                    shutil.copyfileobj(src, f)
+    os.chmod(os.path.join(dest, "rg"), 0o755)
+    print("  -> rg/rg")
+
+
 def fetch_ctags():
     """vendor/ctags/ctags.exe (+ license files). Verified against CTAGS_SHA256."""
+    if MAC:
+        print("== universal-ctags: no macOS build to bundle; install it with `brew install universal-ctags` (optional) ==")
+        return
     print(f"== universal-ctags {CTAGS_VERSION} ==")
     blob = get(CTAGS_ZIP)
     digest = hashlib.sha256(blob).hexdigest()
@@ -140,8 +174,8 @@ def fetch_ctags():
 def main():
     force = "--force" in sys.argv
     loader = os.path.join(VENDOR, "monaco", "vs", "loader.js")
-    rg = os.path.join(VENDOR, "rg", "rg.exe")
-    ctags = os.path.join(VENDOR, "ctags", "ctags.exe")
+    rg = os.path.join(VENDOR, "rg", RG_NAME)
+    ctags = os.path.join(VENDOR, "ctags", "ctags.exe") if not MAC else rg  # none to bundle on macOS
     if os.path.exists(loader) and not force:
         if os.path.exists(rg) and os.path.exists(ctags):
             print("vendor/ already populated - nothing to do (use --force to refetch)")
